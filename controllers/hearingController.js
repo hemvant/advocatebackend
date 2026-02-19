@@ -1,0 +1,285 @@
+const { sequelize, CaseHearing, HearingReminder, Case, Client, OrganizationUser } = require('../models');
+const { Op } = require('sequelize');
+
+function buildHearingWhere(user) {
+  const base = { organization_id: user.organization_id };
+  if (user.role === 'ORG_ADMIN') return base;
+  return {
+    ...base,
+    [Op.or]: [
+      { created_by: user.id },
+      { '$Case.assigned_to$': user.id }
+    ]
+  };
+}
+
+async function getHearingWithAccess(hearingId, user) {
+  const where = buildHearingWhere(user);
+  const hearing = await CaseHearing.findOne({
+    where: { id: hearingId, ...where },
+    include: [
+      { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number', 'client_id'], include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] },
+      { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] },
+      { model: HearingReminder, as: 'HearingReminders', order: [['reminder_time', 'ASC']] }
+    ]
+  });
+  return hearing;
+}
+
+const createHearing = async (req, res, next) => {
+  const t = await sequelize.transaction();
+  try {
+    const user = req.user;
+    const { case_id, hearing_date, courtroom, hearing_type, status, remarks, reminder_times } = req.body;
+
+    const caseRecord = await Case.findOne({
+      where: { id: case_id, organization_id: user.organization_id, is_deleted: false }
+    });
+    if (!caseRecord) return res.status(400).json({ success: false, message: 'Case not found or access denied' });
+
+    const hearing = await CaseHearing.create({
+      case_id,
+      organization_id: user.organization_id,
+      created_by: user.id,
+      hearing_date: hearing_date ? new Date(hearing_date) : null,
+      courtroom: courtroom || null,
+      hearing_type: hearing_type || 'REGULAR',
+      status: status || 'UPCOMING',
+      remarks: remarks || null,
+      reminder_sent: false
+    }, { transaction: t });
+
+    if (Array.isArray(reminder_times) && reminder_times.length) {
+      const reminders = reminder_times.map((r) => ({
+        hearing_id: hearing.id,
+        reminder_time: r.reminder_time ? new Date(r.reminder_time) : null,
+        reminder_type: r.reminder_type || 'SYSTEM',
+        is_sent: false
+      })).filter((r) => r.reminder_time);
+      await HearingReminder.bulkCreate(reminders, { transaction: t });
+    }
+    await t.commit();
+    const created = await getHearingWithAccess(hearing.id, user);
+    res.status(201).json({ success: true, data: created });
+  } catch (err) {
+    await t.rollback();
+    next(err);
+  }
+};
+
+const updateHearing = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const { hearing_date, courtroom, hearing_type, status, remarks } = req.body;
+    const updates = {};
+    if (hearing_date !== undefined) updates.hearing_date = hearing_date ? new Date(hearing_date) : null;
+    if (courtroom !== undefined) updates.courtroom = courtroom || null;
+    if (hearing_type !== undefined) updates.hearing_type = hearing_type;
+    if (status !== undefined) updates.status = status;
+    if (remarks !== undefined) updates.remarks = remarks || null;
+    await hearing.update(updates);
+    const updated = await getHearingWithAccess(hearing.id, user);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const deleteHearing = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    await hearing.destroy();
+    res.json({ success: true, message: 'Hearing deleted' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getHearingById = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    res.json({ success: true, data: hearing });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const listHearings = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const where = buildHearingWhere(user);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const offset = (page - 1) * limit;
+    if (req.query.start || req.query.end) {
+      where.hearing_date = {};
+      if (req.query.start) where.hearing_date[Op.gte] = new Date(req.query.start);
+      if (req.query.end) where.hearing_date[Op.lte] = new Date(req.query.end);
+    }
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.hearing_type) where.hearing_type = req.query.hearing_type;
+
+    const include = [
+      { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number', 'client_id'], required: true, include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] }
+    ];
+
+    const { count, rows } = await CaseHearing.findAndCountAll({
+      where,
+      include,
+      limit,
+      offset,
+      order: [['hearing_date', 'ASC']],
+      distinct: true
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getCalendarView = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const where = buildHearingWhere(user);
+    const start = req.query.start ? new Date(req.query.start) : new Date(new Date().setDate(1));
+    const end = req.query.end ? new Date(req.query.end) : new Date(new Date().setMonth(start.getMonth() + 1));
+    where.hearing_date = { [Op.gte]: start, [Op.lte]: end };
+    if (req.query.status) where.status = req.query.status;
+
+    const include = [
+      { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number', 'client_id'], required: true, include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] }
+    ];
+
+    const hearings = await CaseHearing.findAll({
+      where,
+      include,
+      order: [['hearing_date', 'ASC']]
+    });
+
+    const byDate = {};
+    hearings.forEach((h) => {
+      const d = h.hearing_date ? new Date(h.hearing_date).toISOString().slice(0, 10) : 'none';
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(h);
+    });
+
+    res.json({ success: true, data: hearings, byDate });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getDashboardHearings = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const where = buildHearingWhere(user);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+    const weekEnd = new Date(todayStart.getTime() + 8 * 24 * 60 * 60 * 1000);
+
+    const include = [
+      { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'], required: true, include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] }
+    ];
+
+    const [todays, upcoming, overdue] = await Promise.all([
+      CaseHearing.findAll({
+        where: { ...where, hearing_date: { [Op.gte]: todayStart, [Op.lte]: todayEnd }, status: 'UPCOMING' },
+        include,
+        order: [['hearing_date', 'ASC']]
+      }),
+      CaseHearing.findAll({
+        where: { ...where, hearing_date: { [Op.gt]: todayEnd, [Op.lte]: weekEnd }, status: 'UPCOMING' },
+        include,
+        order: [['hearing_date', 'ASC']],
+        limit: 10
+      }),
+      CaseHearing.findAll({
+        where: { ...where, hearing_date: { [Op.lt]: todayStart }, status: 'UPCOMING' },
+        include,
+        order: [['hearing_date', 'DESC']],
+        limit: 5
+      })
+    ]);
+
+    res.json({
+      success: true,
+      data: { todays, upcoming, overdue }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const listReminders = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const reminders = await HearingReminder.findAll({
+      where: { hearing_id: hearing.id },
+      order: [['reminder_time', 'ASC']]
+    });
+    res.json({ success: true, data: reminders });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const addReminder = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const { reminder_time, reminder_type } = req.body;
+    const reminder = await HearingReminder.create({
+      hearing_id: hearing.id,
+      reminder_time: reminder_time ? new Date(reminder_time) : null,
+      reminder_type: reminder_type || 'SYSTEM',
+      is_sent: false
+    });
+    res.status(201).json({ success: true, data: reminder });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const removeReminder = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const reminder = await HearingReminder.findOne({
+      where: { id: req.params.reminderId, hearing_id: hearing.id }
+    });
+    if (!reminder) return res.status(404).json({ success: false, message: 'Reminder not found' });
+    await reminder.destroy();
+    res.json({ success: true, message: 'Reminder removed' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  createHearing,
+  updateHearing,
+  deleteHearing,
+  getHearingById,
+  listHearings,
+  getCalendarView,
+  getDashboardHearings,
+  listReminders,
+  addReminder,
+  removeReminder
+};
