@@ -1,5 +1,6 @@
 const { sequelize, Client, ClientOpponent, ClientTag, ClientTagMap, OrganizationUser } = require('../models');
 const { Op } = require('sequelize');
+const auditService = require('../utils/auditService');
 
 function buildClientWhere(user) {
   const base = { organization_id: user.organization_id, is_deleted: false };
@@ -61,6 +62,15 @@ const createClient = async (req, res, next) => {
     }
     await t.commit();
     const created = await getClientWithAccess({ Client, ClientOpponent, ClientTag, OrganizationUser }, client.id, user);
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'CLIENT',
+      entity_id: client.id,
+      action_type: 'CREATE',
+      old_value: null,
+      new_value: created ? created.toJSON() : { id: client.id }
+    });
     res.status(201).json({ success: true, data: created });
   } catch (err) {
     await t.rollback();
@@ -84,9 +94,19 @@ const updateClient = async (req, res, next) => {
     if (category !== undefined) updates.category = category;
     if (status !== undefined) updates.status = status;
     if (notes !== undefined) updates.notes = notes || null;
+    const oldSnapshot = client.toJSON();
     if (assigned_to !== undefined && user.role === 'ORG_ADMIN') updates.assigned_to = assigned_to || null;
     await client.update(updates);
     const updated = await getClientWithAccess({ Client, ClientOpponent, ClientTag, OrganizationUser }, client.id, user);
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'CLIENT',
+      entity_id: client.id,
+      action_type: 'UPDATE',
+      old_value: oldSnapshot,
+      new_value: updated ? updated.toJSON() : { ...oldSnapshot, ...updates }
+    });
     res.json({ success: true, data: updated });
   } catch (err) {
     next(err);
@@ -98,7 +118,17 @@ const softDeleteClient = async (req, res, next) => {
     const user = req.user;
     const client = await getClientWithAccess({ Client, ClientOpponent, ClientTag, OrganizationUser }, req.params.id, user);
     if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
+    const oldSnapshot = client.toJSON();
     await client.update({ is_deleted: true });
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'CLIENT',
+      entity_id: client.id,
+      action_type: 'DELETE',
+      old_value: oldSnapshot,
+      new_value: { is_deleted: true }
+    });
     res.json({ success: true, message: 'Client deleted' });
   } catch (err) {
     next(err);
@@ -170,7 +200,17 @@ const assignClientToEmployee = async (req, res, next) => {
       where: { id: assigned_to, organization_id: user.organization_id }
     });
     if (!employee) return res.status(400).json({ success: false, message: 'Invalid employee' });
+    const oldAssigned = client.assigned_to;
     await client.update({ assigned_to });
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'CLIENT',
+      entity_id: client.id,
+      action_type: 'ASSIGN',
+      old_value: { assigned_to: oldAssigned },
+      new_value: { assigned_to }
+    });
     const updated = await getClientWithAccess({ Client, ClientOpponent, ClientTag, OrganizationUser }, client.id, user);
     res.json({ success: true, data: updated });
   } catch (err) {

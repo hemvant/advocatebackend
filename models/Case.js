@@ -35,9 +35,25 @@ const Case = sequelize.define('Case', {
     type: DataTypes.STRING(50),
     allowNull: false
   },
-  court_name: {
-    type: DataTypes.STRING(255),
-    allowNull: true
+  court_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'courts', key: 'id' }
+  },
+  bench_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'court_benches', key: 'id' }
+  },
+  judge_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'judges', key: 'id' }
+  },
+  courtroom_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'courtrooms', key: 'id' }
   },
   case_type: {
     type: DataTypes.ENUM('CIVIL', 'CRIMINAL', 'CORPORATE', 'TAX', 'FAMILY', 'OTHER'),

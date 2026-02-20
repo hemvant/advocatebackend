@@ -6,29 +6,35 @@ const {
   DocumentVersion,
   Case,
   Client,
-  OrganizationUser
+  OrganizationUser,
+  DocumentPermission
 } = require('../models');
 const { Op } = require('sequelize');
 const { UPLOAD_BASE } = require('../config/uploads');
+const auditService = require('../utils/auditService');
 
-function buildDocumentWhere(user, extra = {}) {
+async function buildDocumentWhere(user, extra = {}) {
   const base = {
     organization_id: user.organization_id,
     is_deleted: false,
     ...extra
   };
   if (user.role === 'ORG_ADMIN') return { where: base, includeCase: false };
+  const aclRows = await DocumentPermission.findAll({
+    where: { user_id: user.id },
+    attributes: ['document_id']
+  });
+  const aclDocIds = aclRows.length ? aclRows.map((r) => r.document_id) : [];
+  const orConditions = [{ '$Case.assigned_to$': user.id }, { uploaded_by: user.id }];
+  if (aclDocIds.length) orConditions.push({ id: { [Op.in]: aclDocIds } });
   return {
-    where: {
-      ...base,
-      [Op.or]: [{ '$Case.assigned_to$': user.id }, { uploaded_by: user.id }]
-    },
+    where: { ...base, [Op.or]: orConditions },
     includeCase: true
   };
 }
 
 async function getDocumentWithAccess(documentId, user) {
-  const opts = buildDocumentWhere(user, { id: documentId });
+  const opts = await buildDocumentWhere(user, { id: documentId });
   const include = [
     { model: Case, as: 'Case', required: opts.includeCase, attributes: ['id', 'case_title', 'case_number', 'client_id', 'assigned_to'], include: [{ model: Client, as: 'Client', attributes: ['id', 'name', 'email'] }] },
     { model: OrganizationUser, as: 'Uploader', attributes: ['id', 'name', 'email'] }
@@ -75,6 +81,15 @@ async function uploadDocument(req, res, next) {
         { model: OrganizationUser, as: 'Uploader', attributes: ['id', 'name'] }
       ]
     });
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'DOCUMENT',
+      entity_id: doc.id,
+      action_type: 'CREATE',
+      old_value: null,
+      new_value: created ? created.toJSON() : doc.toJSON()
+    });
     res.status(201).json({ success: true, data: created });
   } catch (err) {
     await t.rollback();
@@ -86,7 +101,7 @@ async function listDocuments(req, res, next) {
   try {
     const user = req.user;
     const { case_id, document_type, from_date, to_date, page = 1, limit = 20, search } = req.query;
-    const opts = buildDocumentWhere(user);
+    const opts = await buildDocumentWhere(user);
     const where = { ...opts.where };
     if (case_id) where.case_id = case_id;
     if (document_type) where.document_type = document_type;
@@ -124,7 +139,7 @@ async function listDocuments(req, res, next) {
 
 async function getDocumentById(req, res, next) {
   try {
-    const doc = await getDocumentWithAccess(req.params.id, req.user);
+    const doc = req.document || (await getDocumentWithAccess(req.params.id, req.user));
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
     const versions = await DocumentVersion.findAll({
       where: { document_id: doc.id },
@@ -139,7 +154,7 @@ async function getDocumentById(req, res, next) {
 
 async function downloadDocument(req, res, next) {
   try {
-    const doc = await getDocumentWithAccess(req.params.id, req.user);
+    const doc = req.document || (await getDocumentWithAccess(req.params.id, req.user));
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
     const absolutePath = path.join(UPLOAD_BASE, doc.file_path);
     if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: 'File not found on disk' });
@@ -154,17 +169,27 @@ async function downloadDocument(req, res, next) {
 
 async function updateDocumentMetadata(req, res, next) {
   try {
-    const doc = await getDocumentWithAccess(req.params.id, req.user);
+    const doc = req.document || (await getDocumentWithAccess(req.params.id, req.user));
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
     const { document_name, document_type } = req.body;
     if (document_name !== undefined) doc.document_name = document_name.trim().slice(0, 255);
     if (document_type !== undefined) doc.document_type = document_type;
+    const oldSnapshot = doc.toJSON();
     await doc.save();
     const updated = await CaseDocument.findByPk(doc.id, {
       include: [
         { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'], include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] },
         { model: OrganizationUser, as: 'Uploader', attributes: ['id', 'name'] }
       ]
+    });
+    await auditService.log(req, {
+      organization_id: req.user.organization_id,
+      user_id: req.user.id,
+      entity_type: 'DOCUMENT',
+      entity_id: doc.id,
+      action_type: 'UPDATE',
+      old_value: oldSnapshot,
+      new_value: updated ? updated.toJSON() : { ...oldSnapshot, document_name: doc.document_name, document_type: doc.document_type }
     });
     res.json({ success: true, data: updated });
   } catch (err) {
@@ -175,11 +200,21 @@ async function updateDocumentMetadata(req, res, next) {
 async function softDeleteDocument(req, res, next) {
   const t = await sequelize.transaction();
   try {
-    const doc = await getDocumentWithAccess(req.params.id, req.user);
+    const doc = req.document || (await getDocumentWithAccess(req.params.id, req.user));
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+    const oldSnapshot = doc.toJSON();
     doc.is_deleted = true;
     await doc.save({ transaction: t });
     await t.commit();
+    await auditService.log(req, {
+      organization_id: req.user.organization_id,
+      user_id: req.user.id,
+      entity_type: 'DOCUMENT',
+      entity_id: doc.id,
+      action_type: 'DELETE',
+      old_value: oldSnapshot,
+      new_value: { is_deleted: true }
+    });
     res.json({ success: true, message: 'Document deleted' });
   } catch (err) {
     await t.rollback();
@@ -193,7 +228,7 @@ async function uploadNewVersion(req, res, next) {
     const user = req.user;
     const file = req.file;
     if (!file) return res.status(400).json({ success: false, message: 'No file uploaded' });
-    const doc = await getDocumentWithAccess(req.params.id, user);
+    const doc = req.document || (await getDocumentWithAccess(req.params.id, user));
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
     const previousPath = path.join(UPLOAD_BASE, doc.file_path);
     await DocumentVersion.create({

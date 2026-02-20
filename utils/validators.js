@@ -136,7 +136,10 @@ const createCaseValidation = [
   body('client_id').isInt({ min: 1 }).withMessage('client_id is required'),
   body('case_title').trim().notEmpty().withMessage('Case title is required').isLength({ max: 255 }),
   body('case_number').optional().trim().isLength({ max: 50 }),
-  body('court_name').optional().trim().isLength({ max: 255 }),
+  body('court_id').optional().isInt({ min: 1 }),
+  body('bench_id').optional().isInt({ min: 1 }),
+  body('judge_id').optional().isInt({ min: 1 }),
+  body('courtroom_id').optional().isInt({ min: 1 }),
   body('case_type').optional().isIn(['CIVIL', 'CRIMINAL', 'CORPORATE', 'TAX', 'FAMILY', 'OTHER']),
   body('status').optional().isIn(['DRAFT', 'FILED', 'HEARING', 'ARGUMENT', 'JUDGMENT', 'CLOSED']),
   body('priority').optional().isIn(['LOW', 'MEDIUM', 'HIGH']),
@@ -149,7 +152,10 @@ const createCaseValidation = [
 const updateCaseValidation = [
   body('case_title').optional().trim().notEmpty().isLength({ max: 255 }),
   body('case_number').optional().trim().isLength({ max: 50 }),
-  body('court_name').optional().trim().isLength({ max: 255 }),
+  body('court_id').optional().isInt({ min: 1 }),
+  body('bench_id').optional().isInt({ min: 1 }),
+  body('judge_id').optional().isInt({ min: 1 }),
+  body('courtroom_id').optional().isInt({ min: 1 }),
   body('case_type').optional().isIn(['CIVIL', 'CRIMINAL', 'CORPORATE', 'TAX', 'FAMILY', 'OTHER']),
   body('status').optional().isIn(['DRAFT', 'FILED', 'HEARING', 'ARGUMENT', 'JUDGMENT', 'CLOSED']),
   body('priority').optional().isIn(['LOW', 'MEDIUM', 'HIGH']),
@@ -162,6 +168,9 @@ const updateCaseValidation = [
 const addHearingValidation = [
   body('hearing_date').optional().isDate(),
   body('courtroom').optional().trim().isLength({ max: 100 }),
+  body('courtroom_id').optional().isInt({ min: 1 }),
+  body('judge_id').optional().isInt({ min: 1 }),
+  body('bench_id').optional().isInt({ min: 1 }),
   body('remarks').optional().trim()
 ];
 
@@ -174,6 +183,9 @@ const createHearingValidation = [
   body('case_id').isInt({ min: 1 }).withMessage('case_id is required'),
   body('hearing_date').notEmpty().withMessage('hearing_date is required').isISO8601().toDate(),
   body('courtroom').optional().trim().isLength({ max: 100 }),
+  body('courtroom_id').optional().isInt({ min: 1 }),
+  body('judge_id').optional().isInt({ min: 1 }),
+  body('bench_id').optional().isInt({ min: 1 }),
   body('hearing_type').optional().isIn(['REGULAR', 'ARGUMENT', 'EVIDENCE', 'FINAL', 'OTHER']),
   body('status').optional().isIn(['UPCOMING', 'COMPLETED', 'ADJOURNED', 'CANCELLED']),
   body('remarks').optional().trim(),
@@ -185,6 +197,9 @@ const createHearingValidation = [
 const updateHearingValidation = [
   body('hearing_date').optional().isISO8601().toDate(),
   body('courtroom').optional().trim().isLength({ max: 100 }),
+  body('courtroom_id').optional().isInt({ min: 1 }),
+  body('judge_id').optional().isInt({ min: 1 }),
+  body('bench_id').optional().isInt({ min: 1 }),
   body('hearing_type').optional().isIn(['REGULAR', 'ARGUMENT', 'EVIDENCE', 'FINAL', 'OTHER']),
   body('status').optional().isIn(['UPCOMING', 'COMPLETED', 'ADJOURNED', 'CANCELLED']),
   body('remarks').optional().trim()
@@ -205,6 +220,55 @@ const documentUpdateMetadataValidation = [
   body('document_name').optional().trim().notEmpty().isLength({ max: 255 }),
   body('document_type').optional().isIn(['PETITION', 'EVIDENCE', 'AGREEMENT', 'NOTICE', 'ORDER', 'OTHER'])
 ];
+
+const createCourtValidation = [
+  body('court_type_id').isInt({ min: 1 }).withMessage('court_type_id is required'),
+  body('name').trim().notEmpty().withMessage('name is required').isLength({ max: 255 }),
+  body('state').optional().trim().isLength({ max: 100 }),
+  body('city').optional().trim().isLength({ max: 100 }),
+  body('address').optional().trim()
+];
+
+const updateCourtValidation = [
+  body('court_type_id').optional().isInt({ min: 1 }),
+  body('name').optional().trim().notEmpty().isLength({ max: 255 }),
+  body('state').optional().trim().isLength({ max: 100 }),
+  body('city').optional().trim().isLength({ max: 100 }),
+  body('address').optional().trim(),
+  body('is_active').optional().isBoolean()
+];
+
+const addBenchValidation = [ body('name').trim().notEmpty().withMessage('name is required').isLength({ max: 255 }) ];
+const updateBenchValidation = [ body('name').optional().trim().notEmpty().isLength({ max: 255 }) ];
+
+const addJudgeValidation = [
+  body('court_id').isInt({ min: 1 }).withMessage('court_id is required'),
+  body('bench_id').optional().isInt({ min: 1 }),
+  body('name').trim().notEmpty().withMessage('name is required').isLength({ max: 255 }),
+  body('designation').optional().trim().isLength({ max: 100 })
+];
+
+const updateJudgeValidation = [
+  body('court_id').optional().isInt({ min: 1 }),
+  body('bench_id').optional().isInt({ min: 1 }).optional({ nullable: true }),
+  body('name').optional().trim().notEmpty().isLength({ max: 255 }),
+  body('designation').optional().trim().isLength({ max: 100 }),
+  body('is_active').optional().isBoolean()
+];
+
+const addCourtroomValidation = [
+  body('bench_id').optional().isInt({ min: 1 }),
+  body('room_number').optional().trim().isLength({ max: 50 }),
+  body('floor').optional().trim().isLength({ max: 50 })
+];
+
+const updateCourtroomValidation = [
+  body('bench_id').optional().isInt({ min: 1 }),
+  body('room_number').optional().trim().isLength({ max: 50 }),
+  body('floor').optional().trim().isLength({ max: 50 })
+];
+
+const assignJudgeToCaseValidation = [ body('judge_id').optional().isInt({ min: 1 }) ];
 
 module.exports = {
   registerValidation,
@@ -234,5 +298,37 @@ module.exports = {
   updateHearingValidation,
   addReminderValidation,
   documentUploadValidation,
-  documentUpdateMetadataValidation
+  documentUpdateMetadataValidation,
+  createCourtValidation,
+  updateCourtValidation,
+  addBenchValidation,
+  updateBenchValidation,
+  addJudgeValidation,
+  updateJudgeValidation,
+  addCourtroomValidation,
+  updateCourtroomValidation,
+  assignJudgeToCaseValidation,
+  setCasePermissionsValidation: [
+    body('permissions').isArray().withMessage('permissions must be an array'),
+    body('permissions.*.user_id').isInt({ min: 1 }).withMessage('Each permission must have user_id'),
+    body('permissions.*.permission').isIn(['VIEW', 'EDIT', 'DELETE']).withMessage('permission must be VIEW, EDIT, or DELETE')
+  ],
+  createTaskValidation: [
+    body('case_id').isInt({ min: 1 }).withMessage('case_id is required'),
+    body('title').trim().notEmpty().withMessage('Title is required').isLength({ max: 255 }),
+    body('description').optional().trim(),
+    body('priority').optional().isIn(['LOW', 'MEDIUM', 'HIGH']),
+    body('due_date').optional().isDate().withMessage('Invalid due_date'),
+    body('assigned_to').optional().isInt({ min: 1 })
+  ],
+  updateTaskValidation: [
+    body('title').optional().trim().notEmpty().isLength({ max: 255 }),
+    body('description').optional().trim(),
+    body('priority').optional().isIn(['LOW', 'MEDIUM', 'HIGH']),
+    body('status').optional().isIn(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']),
+    body('due_date').optional().isDate().withMessage('Invalid due_date')
+  ],
+  reassignTaskValidation: [
+    body('assigned_to').optional().custom((val) => val === undefined || val === null || val === '' || (Number(val) >= 1)).withMessage('assigned_to must be a positive integer or empty')
+  ]
 };

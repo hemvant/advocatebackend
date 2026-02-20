@@ -7,6 +7,13 @@ const { superAdminLoginValidation, createOrganizationValidation, updateOrganizat
 const superAdminController = require('../controllers/superAdminController');
 const organizationController = require('../controllers/organizationController');
 const moduleController = require('../controllers/moduleController');
+const superAdminDashboardController = require('../controllers/superAdminDashboardController');
+const superAdminAnalyticsController = require('../controllers/superAdminAnalyticsController');
+const superAdminRevenueController = require('../controllers/superAdminRevenueController');
+const superAdminSystemController = require('../controllers/superAdminSystemController');
+const superAdminOrganizationController = require('../controllers/superAdminOrganizationController');
+const superAdminAuditController = require('../controllers/superAdminAuditController');
+const superAdminSubscriptionsController = require('../controllers/superAdminSubscriptionsController');
 
 const router = express.Router();
 
@@ -22,12 +29,22 @@ router.post('/login', loginLimiter, sanitizeBody, superAdminLoginValidation, val
 router.post('/logout', superAdminController.logout);
 router.get('/me', superAdminAuth, superAdminController.me);
 
-router.get('/organizations', superAdminAuth, organizationController.list);
+router.get('/dashboard/summary', superAdminAuth, superAdminDashboardController.getSummary);
+router.get('/dashboard/analytics', superAdminAuth, superAdminAnalyticsController.getCharts);
+router.get('/revenue-summary', superAdminAuth, superAdminRevenueController.getRevenueSummary);
+router.get('/system-health', superAdminAuth, superAdminSystemController.getSystemHealth);
+
+router.get('/organizations', superAdminAuth, superAdminOrganizationController.listOrganizations);
 router.post('/organizations', superAdminAuth, sanitizeBody, createOrganizationValidation, validate, organizationController.create);
 router.get('/organizations/:id', superAdminAuth, organizationController.getOne);
+router.get('/organizations/:id/detail', superAdminAuth, superAdminOrganizationController.getOrganizationDetail);
 router.put('/organizations/:id', superAdminAuth, sanitizeBody, updateOrganizationValidation, validate, organizationController.update);
 router.get('/organizations/:id/modules', superAdminAuth, organizationController.getOrgModules);
 router.put('/organizations/:id/modules', superAdminAuth, sanitizeBody, assignOrgModulesValidation, validate, organizationController.assignModules);
+router.post('/organizations/:organizationId/impersonate', superAdminAuth, superAdminOrganizationController.impersonate);
+
+router.get('/subscriptions', superAdminAuth, superAdminSubscriptionsController.listSubscriptions);
+router.get('/audit-logs', superAdminAuth, superAdminAuditController.listPlatformAuditLogs);
 
 router.get('/modules', superAdminAuth, moduleController.listAll);
 

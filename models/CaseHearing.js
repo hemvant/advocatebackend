@@ -30,6 +30,21 @@ const CaseHearing = sequelize.define('CaseHearing', {
     type: DataTypes.STRING(100),
     allowNull: true
   },
+  courtroom_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'courtrooms', key: 'id' }
+  },
+  judge_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'judges', key: 'id' }
+  },
+  bench_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'court_benches', key: 'id' }
+  },
   hearing_type: {
     type: DataTypes.ENUM('REGULAR', 'ARGUMENT', 'EVIDENCE', 'FINAL', 'OTHER'),
     allowNull: false,

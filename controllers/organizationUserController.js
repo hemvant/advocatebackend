@@ -1,4 +1,5 @@
 const { OrganizationUser, Organization, Module, EmployeeModule } = require('../models');
+const auditService = require('../utils/auditService');
 
 const list = async (req, res, next) => {
   try {
@@ -53,6 +54,15 @@ const create = async (req, res, next) => {
       is_approved: false
     });
     const userResponse = user.toJSON();
+    await auditService.log(req, {
+      organization_id: organizationId,
+      user_id: req.user.id,
+      entity_type: 'EMPLOYEE',
+      entity_id: user.id,
+      action_type: 'CREATE',
+      old_value: null,
+      new_value: { id: user.id, name: user.name, email: user.email, role: user.role }
+    });
     res.status(201).json({ success: true, data: userResponse });
   } catch (err) {
     next(err);
@@ -74,8 +84,19 @@ const update = async (req, res, next) => {
     if (is_active !== undefined) updates.is_active = is_active;
     if (is_approved !== undefined) updates.is_approved = is_approved;
     if (role !== undefined) updates.role = role;
+    const oldSnapshot = user.toJSON();
+    delete oldSnapshot.password;
     await user.update(updates);
     const updated = await OrganizationUser.findByPk(user.id, { attributes: { exclude: ['password'] } });
+    await auditService.log(req, {
+      organization_id: organizationId,
+      user_id: req.user.id,
+      entity_type: 'EMPLOYEE',
+      entity_id: user.id,
+      action_type: 'UPDATE',
+      old_value: oldSnapshot,
+      new_value: updated ? updated.toJSON() : { ...oldSnapshot, ...updates }
+    });
     res.json({ success: true, data: updated });
   } catch (err) {
     next(err);
@@ -109,12 +130,24 @@ const assignEmployeeModules = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
+    const oldLinks = await EmployeeModule.findAll({ where: { organization_user_id: user.id }, attributes: ['module_id'] });
+    const oldModuleIds = (oldLinks || []).map((l) => l.module_id);
     await EmployeeModule.destroy({ where: { organization_user_id: user.id } });
-    const records = module_ids.map((module_id) => ({ organization_user_id: user.id, module_id }));
+    const records = (module_ids || []).map((module_id) => ({ organization_user_id: user.id, module_id }));
     await EmployeeModule.bulkCreate(records);
     const updated = await OrganizationUser.findByPk(user.id, {
       include: [{ model: Module, as: 'Modules', through: { attributes: [] }, attributes: ['id', 'name'] }],
       attributes: { exclude: ['password'] }
+    });
+    const newModuleIds = (updated.Modules || []).map((m) => m.id);
+    await auditService.log(req, {
+      organization_id: organizationId,
+      user_id: req.user.id,
+      entity_type: 'EMPLOYEE',
+      entity_id: user.id,
+      action_type: 'MODULE_CHANGE',
+      old_value: { module_ids: oldModuleIds },
+      new_value: { module_ids: newModuleIds }
     });
     res.json({ success: true, data: updated.Modules || [] });
   } catch (err) {

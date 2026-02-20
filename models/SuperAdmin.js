@@ -26,7 +26,10 @@ const SuperAdmin = sequelize.define('SuperAdmin', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true
-  }
+  },
+  failed_login_count: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0 },
+  locked_until: { type: DataTypes.DATE, allowNull: true },
+  last_login_ip: { type: DataTypes.STRING(45), allowNull: true }
 }, {
   tableName: 'super_admins',
   timestamps: true,

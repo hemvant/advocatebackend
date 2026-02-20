@@ -1,5 +1,7 @@
 const { sequelize, CaseHearing, HearingReminder, Case, Client, OrganizationUser } = require('../models');
 const { Op } = require('sequelize');
+const auditService = require('../utils/auditService');
+const cache = require('../utils/cache');
 
 function buildHearingWhere(user) {
   const base = { organization_id: user.organization_id };
@@ -30,7 +32,7 @@ const createHearing = async (req, res, next) => {
   const t = await sequelize.transaction();
   try {
     const user = req.user;
-    const { case_id, hearing_date, courtroom, hearing_type, status, remarks, reminder_times } = req.body;
+    const { case_id, hearing_date, courtroom, courtroom_id, judge_id, bench_id, hearing_type, status, remarks, reminder_times } = req.body;
 
     const caseRecord = await Case.findOne({
       where: { id: case_id, organization_id: user.organization_id, is_deleted: false }
@@ -43,6 +45,9 @@ const createHearing = async (req, res, next) => {
       created_by: user.id,
       hearing_date: hearing_date ? new Date(hearing_date) : null,
       courtroom: courtroom || null,
+      courtroom_id: courtroom_id || null,
+      judge_id: judge_id || null,
+      bench_id: bench_id || null,
       hearing_type: hearing_type || 'REGULAR',
       status: status || 'UPCOMING',
       remarks: remarks || null,
@@ -60,6 +65,15 @@ const createHearing = async (req, res, next) => {
     }
     await t.commit();
     const created = await getHearingWithAccess(hearing.id, user);
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'HEARING',
+      entity_id: hearing.id,
+      action_type: 'CREATE',
+      old_value: null,
+      new_value: created ? created.toJSON() : hearing.toJSON()
+    });
     res.status(201).json({ success: true, data: created });
   } catch (err) {
     await t.rollback();
@@ -72,15 +86,28 @@ const updateHearing = async (req, res, next) => {
     const user = req.user;
     const hearing = await getHearingWithAccess(req.params.id, user);
     if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
-    const { hearing_date, courtroom, hearing_type, status, remarks } = req.body;
+    const { hearing_date, courtroom, courtroom_id, judge_id, bench_id, hearing_type, status, remarks } = req.body;
     const updates = {};
     if (hearing_date !== undefined) updates.hearing_date = hearing_date ? new Date(hearing_date) : null;
     if (courtroom !== undefined) updates.courtroom = courtroom || null;
+    if (courtroom_id !== undefined) updates.courtroom_id = courtroom_id || null;
+    if (judge_id !== undefined) updates.judge_id = judge_id || null;
+    if (bench_id !== undefined) updates.bench_id = bench_id || null;
     if (hearing_type !== undefined) updates.hearing_type = hearing_type;
     if (status !== undefined) updates.status = status;
     if (remarks !== undefined) updates.remarks = remarks || null;
+    const oldSnapshot = hearing.toJSON();
     await hearing.update(updates);
     const updated = await getHearingWithAccess(hearing.id, user);
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'HEARING',
+      entity_id: hearing.id,
+      action_type: 'UPDATE',
+      old_value: oldSnapshot,
+      new_value: updated ? updated.toJSON() : { ...oldSnapshot, ...updates }
+    });
     res.json({ success: true, data: updated });
   } catch (err) {
     next(err);
@@ -92,7 +119,17 @@ const deleteHearing = async (req, res, next) => {
     const user = req.user;
     const hearing = await getHearingWithAccess(req.params.id, user);
     if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const oldSnapshot = hearing.toJSON();
     await hearing.destroy();
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'HEARING',
+      entity_id: hearing.id,
+      action_type: 'DELETE',
+      old_value: oldSnapshot,
+      new_value: null
+    });
     res.json({ success: true, message: 'Hearing deleted' });
   } catch (err) {
     next(err);
@@ -183,6 +220,9 @@ const getCalendarView = async (req, res, next) => {
 const getDashboardHearings = async (req, res, next) => {
   try {
     const user = req.user;
+    const key = cache.cacheKey('dashboard:hearing', [user.organization_id, user.id]);
+    const cached = await cache.get(key);
+    if (cached) return res.json(cached);
     const where = buildHearingWhere(user);
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -213,10 +253,9 @@ const getDashboardHearings = async (req, res, next) => {
       })
     ]);
 
-    res.json({
-      success: true,
-      data: { todays, upcoming, overdue }
-    });
+    const payload = { success: true, data: { todays, upcoming, overdue } };
+    await cache.set(key, payload, cache.TTL.DASHBOARD);
+    res.json(payload);
   } catch (err) {
     next(err);
   }

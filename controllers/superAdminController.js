@@ -1,12 +1,26 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
-const { SuperAdmin } = require('../models');
+const { SuperAdmin, SuperAdminLoginAttempt, SystemMetric } = require('../models');
+
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCK_MINUTES = 15;
+
+function getClientIp(req) {
+  return req.headers && (req.headers['x-forwarded-for'] || req.headers['x-real-ip']) ? (req.headers['x-forwarded-for'] || req.headers['x-real-ip']).split(',')[0].trim() : (req.connection && req.connection.remoteAddress) || null;
+}
 
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const ip = getClientIp(req);
     const admin = await SuperAdmin.findOne({ where: { email } });
+    if (admin && admin.locked_until && new Date() < new Date(admin.locked_until)) {
+      await SuperAdminLoginAttempt.create({ email, ip_address: ip, success: false });
+      return res.status(423).json({ success: false, message: 'Account temporarily locked. Try again after ' + LOCK_MINUTES + ' minutes.' });
+    }
     if (!admin) {
+      await SuperAdminLoginAttempt.create({ email: email || '', ip_address: ip, success: false });
+      SystemMetric.create({ metric_name: 'super_admin_failed_login', metric_value: 1 }).catch(() => {});
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
     if (!admin.is_active) {
@@ -14,8 +28,15 @@ const login = async (req, res, next) => {
     }
     const match = await admin.comparePassword(password);
     if (!match) {
+      await SuperAdminLoginAttempt.create({ email, ip_address: ip, success: false });
+      SystemMetric.create({ metric_name: 'super_admin_failed_login', metric_value: 1 }).catch(() => {});
+      const failCount = (admin.failed_login_count || 0) + 1;
+      const updates = { failed_login_count: failCount };
+      if (failCount >= MAX_FAILED_ATTEMPTS) updates.locked_until = new Date(Date.now() + LOCK_MINUTES * 60 * 1000);
+      await admin.update(updates);
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
+    
     const token = jwt.sign(
       { type: 'super_admin', id: admin.id },
       config.jwt.secret,

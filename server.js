@@ -6,8 +6,10 @@ const cors = require('cors');
 const config = require('./config');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
+const requestLogger = require('./middleware/requestLogger');
 const { testConnection } = require('./utils/db');
 const { initReminderCron } = require('./utils/reminderJob');
+const logger = require('./utils/logger');
 
 require('./models');
 
@@ -23,14 +25,15 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(requestLogger);
 
 app.use('/api', routes);
 
 app.use(errorHandler);
 
-testConnection().then(() => {
+testConnection().then(function() {
   initReminderCron();
-  app.listen(config.port, () => {
-    console.log(`Server running on port ${config.port}`);
+  app.listen(config.port, function() {
+    logger.info('Server running on port ' + config.port);
   });
-}).catch(() => process.exit(1));
+}).catch(function() { process.exit(1); });

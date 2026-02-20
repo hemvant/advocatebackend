@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { OrganizationUser, Organization, Module } = require('../models');
+const auditService = require('../utils/auditService');
 
 const login = async (req, res, next) => {
   try {
@@ -31,6 +32,15 @@ const login = async (req, res, next) => {
       { expiresIn: config.jwt.expiresIn }
     );
     res.cookie(config.jwt.cookieName, token, config.cookieOptions);
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'EMPLOYEE',
+      entity_id: user.id,
+      action_type: 'LOGIN',
+      old_value: null,
+      new_value: { email: user.email, logged_at: new Date().toISOString() }
+    });
     const userResponse = user.toJSON();
     userResponse.organization = user.Organization;
     return res.json({ success: true, user: { ...userResponse, type: 'org' } });
