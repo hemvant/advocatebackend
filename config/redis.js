@@ -1,30 +1,61 @@
 require('dotenv').config();
+
 function getRedisOptions() {
-  var url = process.env.REDIS_URL || 'redis://localhost:6379';
-  if (process.env.REDIS_URL) return { maxRetriesPerRequest: null, url: url };
+  // If full REDIS_URL provided (like production)
+  if (process.env.REDIS_URL) {
+    return {
+      url: process.env.REDIS_URL,
+      maxRetriesPerRequest: null
+    };
+  }
+
+  // Default Docker-safe config
   return {
-    maxRetriesPerRequest: null,
-    host: process.env.REDIS_HOST || 'localhost',
+    host: process.env.REDIS_HOST || 'redis',   // ← important change
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined
+    password: process.env.REDIS_PASSWORD || undefined,
+    maxRetriesPerRequest: null
   };
 }
-var client = null;
+
+let client = null;
+
 async function getRedisClient() {
+  if (!isRedisEnabled()) return null;
+
   if (client) return client;
+
   try {
-    var Redis = require('ioredis');
-    var opts = getRedisOptions();
-    client = opts.url ? new Redis(opts.url, { maxRetriesPerRequest: null }) : new Redis(opts);
-    client.on('error', function(err) {
-      try { require('../utils/logger').warn('Redis client error:', err.message); } catch (_) {}
+    const Redis = require('ioredis');
+    const opts = getRedisOptions();
+
+    client = opts.url
+      ? new Redis(opts.url, { maxRetriesPerRequest: null })
+      : new Redis(opts);
+
+    client.on('connect', () => {
+      console.log('✅ Redis connected');
     });
+
+    client.on('error', (err) => {
+      try {
+        require('../utils/logger').warn('Redis error:', err.message);
+      } catch (_) {}
+    });
+
     return client;
   } catch (err) {
+    console.error('❌ Redis initialization failed:', err.message);
     return null;
   }
 }
+
 function isRedisEnabled() {
   return process.env.REDIS_ENABLED !== 'false';
 }
-module.exports = { getRedisClient, getRedisOptions, isRedisEnabled, redisUrl: process.env.REDIS_URL || 'redis://localhost:6379' };
+
+module.exports = {
+  getRedisClient,
+  getRedisOptions,
+  isRedisEnabled
+};
