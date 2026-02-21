@@ -97,21 +97,29 @@ const myModules = async (req, res, next) => {
       const exp = new Date(subscription.expires_at);
       remainingDays = Math.max(0, Math.ceil((exp - now) / (24 * 60 * 60 * 1000)));
     }
-    res.json({
-      success: true,
-      data: {
-        package: subscription?.Package ? {
+    const packagePayload = subscription?.Package
+      ? {
           id: subscription.Package.id,
           name: subscription.Package.name,
           duration_days: subscription.Package.duration_days,
-          is_demo: subscription.Package.is_demo
-        } : null,
+          is_demo: subscription.Package.is_demo,
+          expiry_date: subscription.expires_at || null,
+          remaining_days: remainingDays,
+          is_expired: expired
+        }
+      : null;
+    const allowedModuleKeys = allowedModules.map((m) => m.name);
+    res.json({
+      success: true,
+      data: {
+        package: packagePayload,
         subscription: subscription ? {
           started_at: subscription.started_at,
           expires_at: subscription.expires_at,
           status: subscription.status
         } : null,
         allowedModules,
+        allowed_modules: allowedModuleKeys,
         allModules: allModules.map((m) => ({ id: m.id, name: m.name })),
         allowedModuleIds,
         remainingDays,

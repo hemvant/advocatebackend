@@ -15,8 +15,8 @@ const moduleAccessMiddleware = (moduleName) => {
       if (expired && moduleName !== 'Billing') {
         return res.status(403).json({
           success: false,
-          message: 'Your subscription has expired',
-          upgradeRequired: true
+          message: 'Your subscription has expired.',
+          expired: true
         });
       }
       if (expired && moduleName === 'Billing') {
