@@ -30,8 +30,8 @@ const register = async (req, res, next) => {
     );
     res.cookie(config.jwt.cookieName, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      secure: false,
+      sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
     return res.status(201).json({
@@ -71,8 +71,8 @@ const login = async (req, res, next) => {
     );
     res.cookie(config.jwt.cookieName, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      secure: false,
+      sameSite:'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
     const userResponse = user.toJSON();
@@ -85,8 +85,8 @@ const login = async (req, res, next) => {
 const logout = (req, res) => {
   res.clearCookie(config.jwt.cookieName, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax'
+    secure: false,
+    sameSite:'lax'
   });
   res.json({ success: true, message: 'Logged out' });
 };
