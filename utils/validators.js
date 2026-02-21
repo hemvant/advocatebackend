@@ -270,6 +270,14 @@ const updateCourtroomValidation = [
 
 const assignJudgeToCaseValidation = [ body('judge_id').optional().isInt({ min: 1 }) ];
 
+const resetOrgAdminPasswordValidation = [
+  body('new_password').notEmpty().withMessage('New password is required').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+];
+
+const resetEmployeePasswordValidation = [
+  body('new_password').notEmpty().withMessage('New password is required').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+];
+
 module.exports = {
   registerValidation,
   loginValidation,
@@ -308,6 +316,8 @@ module.exports = {
   addCourtroomValidation,
   updateCourtroomValidation,
   assignJudgeToCaseValidation,
+  resetOrgAdminPasswordValidation,
+  resetEmployeePasswordValidation,
   setCasePermissionsValidation: [
     body('permissions').isArray().withMessage('permissions must be an array'),
     body('permissions.*.user_id').isInt({ min: 1 }).withMessage('Each permission must have user_id'),

@@ -3,7 +3,7 @@ const rateLimit = require('express-rate-limit');
 const superAdminAuth = require('../middleware/superAdminAuth');
 const sanitizeBody = require('../middleware/sanitize').sanitizeBody;
 const validate = require('../middleware/validate');
-const { superAdminLoginValidation, createOrganizationValidation, updateOrganizationValidation, assignOrgModulesValidation } = require('../utils/validators');
+const { superAdminLoginValidation, createOrganizationValidation, updateOrganizationValidation, assignOrgModulesValidation, resetOrgAdminPasswordValidation } = require('../utils/validators');
 const superAdminController = require('../controllers/superAdminController');
 const organizationController = require('../controllers/organizationController');
 const moduleController = require('../controllers/moduleController');
@@ -42,6 +42,7 @@ router.put('/organizations/:id', superAdminAuth, sanitizeBody, updateOrganizatio
 router.get('/organizations/:id/modules', superAdminAuth, organizationController.getOrgModules);
 router.put('/organizations/:id/modules', superAdminAuth, sanitizeBody, assignOrgModulesValidation, validate, organizationController.assignModules);
 router.post('/organizations/:organizationId/impersonate', superAdminAuth, superAdminOrganizationController.impersonate);
+router.put('/organizations/:id/reset-admin-password', superAdminAuth, sanitizeBody, resetOrgAdminPasswordValidation, validate, superAdminOrganizationController.resetOrgAdminPassword);
 
 router.get('/subscriptions', superAdminAuth, superAdminSubscriptionsController.listSubscriptions);
 router.get('/audit-logs', superAdminAuth, superAdminAuditController.listPlatformAuditLogs);

@@ -1,6 +1,7 @@
 const { Organization, OrganizationUser, Module, Client, Case, Invoice, AuditLog, Subscription, ImpersonationLog } = require('../models');
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const config = require('../config');
 
 async function listOrganizations(req, res, next) {
@@ -105,4 +106,21 @@ async function impersonate(req, res, next) {
   }
 }
 
-module.exports = { listOrganizations, getOrganizationDetail, impersonate };
+async function resetOrgAdminPassword(req, res, next) {
+  try {
+    const orgId = parseInt(req.params.id, 10);
+    const org = await Organization.findByPk(orgId);
+    if (!org) return res.status(404).json({ success: false, message: 'Organization not found' });
+    const admin = await OrganizationUser.findOne({ where: { organization_id: orgId, role: 'ORG_ADMIN' } });
+    if (!admin) return res.status(404).json({ success: false, message: 'Org admin user not found' });
+    const newPassword = req.body.new_password;
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(newPassword, salt);
+    await admin.update({ password: hashed });
+    res.json({ success: true, message: 'Org admin password reset successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { listOrganizations, getOrganizationDetail, impersonate, resetOrgAdminPassword };

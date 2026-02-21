@@ -166,8 +166,12 @@ CaseDocument.belongsTo(OrganizationUser, { foreignKey: 'uploaded_by', as: 'Uploa
 OrganizationUser.hasMany(CaseDocument, { foreignKey: 'uploaded_by' });
 CaseDocument.hasMany(DocumentVersion, { foreignKey: 'document_id' });
 DocumentVersion.belongsTo(CaseDocument, { foreignKey: 'document_id' });
+DocumentVersion.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(DocumentVersion, { foreignKey: 'organization_id' });
 DocumentVersion.belongsTo(OrganizationUser, { foreignKey: 'uploaded_by', as: 'Uploader' });
+DocumentVersion.belongsTo(OrganizationUser, { foreignKey: 'changed_by', as: 'Changer' });
 OrganizationUser.hasMany(DocumentVersion, { foreignKey: 'uploaded_by' });
+OrganizationUser.hasMany(DocumentVersion, { foreignKey: 'changed_by' });
 
 AuditLog.belongsTo(Organization, { foreignKey: 'organization_id' });
 AuditLog.belongsTo(OrganizationUser, { foreignKey: 'user_id', as: 'User' });

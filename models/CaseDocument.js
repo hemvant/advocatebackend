@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../utils/db');
 
 const DOCUMENT_TYPES = ['PETITION', 'EVIDENCE', 'AGREEMENT', 'NOTICE', 'ORDER', 'OTHER'];
+const OCR_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'];
 
 const CaseDocument = sequelize.define('CaseDocument', {
   id: {
@@ -58,10 +59,24 @@ const CaseDocument = sequelize.define('CaseDocument', {
     allowNull: false,
     defaultValue: 1
   },
+  current_version: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1
+  },
   is_deleted: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false
+  },
+  ocr_text: {
+    type: DataTypes.TEXT('long'),
+    allowNull: true
+  },
+  ocr_status: {
+    type: DataTypes.ENUM(...OCR_STATUSES),
+    allowNull: true,
+    defaultValue: 'PENDING'
   }
 }, {
   tableName: 'case_documents',
@@ -72,4 +87,5 @@ const CaseDocument = sequelize.define('CaseDocument', {
 });
 
 CaseDocument.DOCUMENT_TYPES = DOCUMENT_TYPES;
+CaseDocument.OCR_STATUSES = OCR_STATUSES;
 module.exports = CaseDocument;

@@ -4,7 +4,7 @@ const organizationAuth = require('../middleware/organizationAuth');
 const { requireOrgAdmin, requireOrgAdminOrEmployee } = require('../middleware/orgRole');
 const sanitizeBody = require('../middleware/sanitize').sanitizeBody;
 const validate = require('../middleware/validate');
-const { orgLoginValidation, createOrgUserValidation, updateOrgUserValidation, assignEmployeeModulesValidation } = require('../utils/validators');
+const { orgLoginValidation, createOrgUserValidation, updateOrgUserValidation, assignEmployeeModulesValidation, resetEmployeePasswordValidation } = require('../utils/validators');
 const orgAuthController = require('../controllers/orgAuthController');
 const organizationUserController = require('../controllers/organizationUserController');
 const moduleController = require('../controllers/moduleController');
@@ -29,6 +29,7 @@ router.get('/employees/:id', organizationAuth, requireOrgAdminOrEmployee, organi
 router.put('/employees/:id', organizationAuth, requireOrgAdmin, sanitizeBody, updateOrgUserValidation, validate, organizationUserController.update);
 router.get('/employees/:id/modules', organizationAuth, requireOrgAdmin, organizationUserController.getEmployeeModules);
 router.put('/employees/:id/modules', organizationAuth, requireOrgAdmin, assignEmployeeModulesValidation, validate, organizationUserController.assignEmployeeModules);
+router.put('/employees/:id/reset-password', organizationAuth, requireOrgAdmin, sanitizeBody, resetEmployeePasswordValidation, validate, organizationUserController.resetPassword);
 
 router.get('/modules', organizationAuth, moduleController.list);
 

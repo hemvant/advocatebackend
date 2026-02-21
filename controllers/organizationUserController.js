@@ -1,4 +1,5 @@
 const { OrganizationUser, Organization, Module, EmployeeModule } = require('../models');
+const bcrypt = require('bcrypt');
 const auditService = require('../utils/auditService');
 
 const list = async (req, res, next) => {
@@ -155,4 +156,35 @@ const assignEmployeeModules = async (req, res, next) => {
   }
 };
 
-module.exports = { list, getOne, create, update, getEmployeeModules, assignEmployeeModules };
+const resetPassword = async (req, res, next) => {
+  try {
+    const organizationId = req.user.organization_id;
+    if (req.user.role !== 'ORG_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Only org admin can reset employee password' });
+    }
+    const user = await OrganizationUser.findOne({
+      where: { id: req.params.id, organization_id: organizationId }
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const newPassword = req.body.new_password;
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(newPassword, salt);
+    await user.update({ password: hashed });
+    await auditService.log(req, {
+      organization_id: organizationId,
+      user_id: req.user.id,
+      entity_type: 'EMPLOYEE',
+      entity_id: user.id,
+      action_type: 'UPDATE',
+      old_value: null,
+      new_value: { password_reset: true }
+    });
+    res.json({ success: true, message: 'Password reset successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { list, getOne, create, update, getEmployeeModules, assignEmployeeModules, resetPassword };
