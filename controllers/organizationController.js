@@ -1,4 +1,4 @@
-const { Organization, OrganizationUser, OrganizationModule, Module, Package, Subscription } = require('../models');
+const { sequelize, Organization, OrganizationUser, OrganizationModule, Module, Package, Subscription } = require('../models');
 const { syncOrgModulesFromPackage } = require('../utils/subscriptionService');
 
 const list = async (req, res, next) => {
@@ -31,24 +31,39 @@ const getOne = async (req, res, next) => {
 };
 
 const create = async (req, res, next) => {
+  const t = await sequelize.transaction();
   try {
-    const { name, email, phone, address, subscription_plan, org_admin_name, org_admin_email, org_admin_password, package_id, billing_cycle } = req.body;
+    const { name, email, phone, address, subscription_plan, org_admin_name, org_admin_email, org_admin_password, package_id } = req.body;
     const existingOrg = await Organization.findOne({ where: { name } });
     if (existingOrg) {
+      await t.rollback();
       return res.status(409).json({ success: false, message: 'Organization name already exists' });
     }
     const existingEmail = await OrganizationUser.findOne({ where: { email: org_admin_email } });
     if (existingEmail) {
+      await t.rollback();
       return res.status(409).json({ success: false, message: 'Org admin email already registered' });
     }
+    let pkg = null;
+    if (package_id) {
+      pkg = await Package.findByPk(package_id);
+    }
+    if (!pkg) {
+      pkg = await Package.findOne({ where: { name: 'Demo', is_demo: true } });
+    }
+    if (!pkg) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: 'No package selected and Demo package not found. Please select a package.' });
+    }
+
     const org = await Organization.create({
       name,
       email: email || null,
       phone: phone || null,
       address: address || null,
-      subscription_plan: subscription_plan || null,
+      subscription_plan: subscription_plan || pkg.name,
       is_active: true
-    });
+    }, { transaction: t });
     const orgAdmin = await OrganizationUser.create({
       organization_id: org.id,
       name: org_admin_name,
@@ -57,30 +72,30 @@ const create = async (req, res, next) => {
       role: 'ORG_ADMIN',
       is_active: true,
       is_approved: true
-    });
-    if (package_id && billing_cycle && (billing_cycle === 'MONTHLY' || billing_cycle === 'ANNUAL')) {
-      const pkg = await Package.findByPk(package_id);
-      if (pkg) {
-        const start = new Date();
-        const expiresAt = billing_cycle === 'ANNUAL'
-          ? new Date(start.getFullYear() + 1, start.getMonth(), start.getDate())
-          : new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
-        await Subscription.create({
-          organization_id: org.id,
-          package_id: pkg.id,
-          plan: pkg.name,
-          billing_cycle,
-          status: 'ACTIVE',
-          started_at: start,
-          expires_at: expiresAt
-        });
-        await syncOrgModulesFromPackage(org.id, pkg.id);
-      }
-    }
+    }, { transaction: t });
+
+    const startDate = new Date();
+    const durationDays = pkg.is_demo ? 7 : (pkg.duration_days || 30);
+    const expiryDate = new Date(startDate);
+    expiryDate.setDate(expiryDate.getDate() + durationDays);
+
+    await Subscription.create({
+      organization_id: org.id,
+      package_id: pkg.id,
+      plan: pkg.name,
+      billing_cycle: null,
+      status: 'ACTIVE',
+      started_at: startDate,
+      expires_at: expiryDate
+    }, { transaction: t });
+    await t.commit();
+    await syncOrgModulesFromPackage(org.id, pkg.id);
+
     const orgResponse = org.toJSON();
     orgResponse.org_admin = orgAdmin.toJSON();
     res.status(201).json({ success: true, data: orgResponse, message: 'Organization and org admin created' });
   } catch (err) {
+    await t.rollback();
     next(err);
   }
 };

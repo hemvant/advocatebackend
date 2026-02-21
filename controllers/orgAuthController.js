@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { OrganizationUser, Organization, Module } = require('../models');
 const auditService = require('../utils/auditService');
+const { getSubscriptionForOrg, isSubscriptionExpired } = require('../utils/subscriptionService');
 
 const login = async (req, res, next) => {
   try {
@@ -79,4 +80,47 @@ const me = async (req, res, next) => {
   }
 };
 
-module.exports = { login, logout, me };
+const myModules = async (req, res, next) => {
+  try {
+    const { subscription, packageModules } = await getSubscriptionForOrg(req.user.organization_id);
+    const expired = isSubscriptionExpired(subscription);
+    const allModules = await Module.findAll({
+      where: { is_active: true },
+      order: [['name', 'ASC']],
+      attributes: ['id', 'name']
+    });
+    const allowedModuleIds = packageModules.map((m) => m.id);
+    const allowedModules = packageModules.map((m) => ({ id: m.id, name: m.name }));
+    let remainingDays = null;
+    if (subscription && subscription.expires_at) {
+      const now = new Date();
+      const exp = new Date(subscription.expires_at);
+      remainingDays = Math.max(0, Math.ceil((exp - now) / (24 * 60 * 60 * 1000)));
+    }
+    res.json({
+      success: true,
+      data: {
+        package: subscription?.Package ? {
+          id: subscription.Package.id,
+          name: subscription.Package.name,
+          duration_days: subscription.Package.duration_days,
+          is_demo: subscription.Package.is_demo
+        } : null,
+        subscription: subscription ? {
+          started_at: subscription.started_at,
+          expires_at: subscription.expires_at,
+          status: subscription.status
+        } : null,
+        allowedModules,
+        allModules: allModules.map((m) => ({ id: m.id, name: m.name })),
+        allowedModuleIds,
+        remainingDays,
+        isExpired: expired
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { login, logout, me, myModules };

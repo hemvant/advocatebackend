@@ -50,20 +50,21 @@ async function listSubscriptions(req, res, next) {
 async function assignSubscription(req, res, next) {
   try {
     const { organizationId } = req.params;
-    const { package_id, billing_cycle, started_at } = req.body;
+    const { package_id, started_at } = req.body;
     const org = await Organization.findByPk(organizationId);
     if (!org) return res.status(404).json({ success: false, message: 'Organization not found' });
     const pkg = await Package.findByPk(package_id, { include: [{ model: Module, as: 'Modules', through: { attributes: [] }, attributes: ['id'] }] });
     if (!pkg) return res.status(404).json({ success: false, message: 'Package not found' });
     const start = started_at ? new Date(started_at) : new Date();
-    const expiresAt = billing_cycle === 'ANNUAL'
-      ? new Date(start.getFullYear() + 1, start.getMonth(), start.getDate())
-      : new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+    const durationDays = pkg.is_demo ? 7 : (pkg.duration_days || 30);
+    const expiresAt = new Date(start);
+    expiresAt.setDate(expiresAt.getDate() + durationDays);
+
     let sub = await Subscription.findOne({ where: { organization_id: organizationId }, order: [['id', 'DESC']] });
     if (sub) {
       sub.package_id = pkg.id;
       sub.plan = pkg.name;
-      sub.billing_cycle = billing_cycle;
+      sub.billing_cycle = null;
       sub.started_at = start;
       sub.expires_at = expiresAt;
       sub.status = 'ACTIVE';
@@ -73,7 +74,7 @@ async function assignSubscription(req, res, next) {
         organization_id: organizationId,
         package_id: pkg.id,
         plan: pkg.name,
-        billing_cycle,
+        billing_cycle: null,
         status: 'ACTIVE',
         started_at: start,
         expires_at: expiresAt

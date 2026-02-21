@@ -33,6 +33,16 @@ const Package = sequelize.define('Package', {
     allowNull: false,
     defaultValue: 1
   },
+  duration_days: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: 30
+  },
+  is_demo: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     allowNull: false,

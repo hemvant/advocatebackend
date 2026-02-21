@@ -22,6 +22,7 @@ const loginLimiter = rateLimit({
 router.post('/login', loginLimiter, sanitizeBody, orgLoginValidation, validate, orgAuthController.login);
 router.post('/logout', orgAuthController.logout);
 router.get('/me', organizationAuth, orgAuthController.me);
+router.get('/my-modules', organizationAuth, orgAuthController.myModules);
 
 router.get('/employees', organizationAuth, requireOrgAdminOrEmployee, organizationUserController.list);
 router.post('/employees', organizationAuth, requireOrgAdmin, sanitizeBody, createOrgUserValidation, validate, organizationUserController.create);

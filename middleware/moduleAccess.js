@@ -1,4 +1,5 @@
 const { OrganizationModule, EmployeeModule, Module } = require('../models');
+const { getSubscriptionForOrg, isSubscriptionExpired } = require('../utils/subscriptionService');
 
 const moduleAccessMiddleware = (moduleName) => {
   return async (req, res, next) => {
@@ -9,6 +10,19 @@ const moduleAccessMiddleware = (moduleName) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
     try {
+      const { subscription } = await getSubscriptionForOrg(req.user.organization_id);
+      const expired = isSubscriptionExpired(subscription);
+      if (expired && moduleName !== 'Billing') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your subscription has expired',
+          upgradeRequired: true
+        });
+      }
+      if (expired && moduleName === 'Billing') {
+        return next();
+      }
+
       const moduleRecord = await Module.findOne({ where: { name: moduleName, is_active: true } });
       if (!moduleRecord) {
         return res.status(404).json({ success: false, message: 'Module not found' });
@@ -17,7 +31,11 @@ const moduleAccessMiddleware = (moduleName) => {
         where: { organization_id: req.user.organization_id, module_id: moduleRecord.id }
       });
       if (!orgHasModule) {
-        return res.status(403).json({ success: false, message: 'Organization does not have access to this module' });
+        return res.status(403).json({
+          success: false,
+          message: 'This feature is not included in your current plan.',
+          upgradeRequired: true
+        });
       }
       if (req.user.role === 'ORG_ADMIN') {
         return next();
@@ -26,7 +44,11 @@ const moduleAccessMiddleware = (moduleName) => {
         where: { organization_user_id: req.user.id, module_id: moduleRecord.id }
       });
       if (!employeeHasModule) {
-        return res.status(403).json({ success: false, message: 'You do not have access to this module' });
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this module',
+          upgradeRequired: false
+        });
       }
       next();
     } catch (err) {

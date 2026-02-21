@@ -80,10 +80,12 @@ const assignOrgModulesValidation = [
 const createPackageValidation = [
   body('name').trim().notEmpty().withMessage('Package name is required').isLength({ max: 100 }),
   body('description').optional().trim(),
-  body('price_monthly').isFloat({ min: 0 }).withMessage('Monthly price must be non-negative'),
-  body('price_annual').isFloat({ min: 0 }).withMessage('Annual price must be non-negative'),
+  body('price_monthly').optional().isFloat({ min: 0 }).withMessage('Monthly price must be non-negative'),
+  body('price_annual').optional().isFloat({ min: 0 }).withMessage('Annual price must be non-negative'),
   body('annual_discount_percent').optional().isFloat({ min: 0, max: 100 }),
-  body('employee_limit').isInt({ min: 1 }).withMessage('Employee limit must be at least 1'),
+  body('employee_limit').optional().isInt({ min: 1 }).withMessage('Employee limit must be at least 1'),
+  body('duration_days').optional().isInt({ min: 1 }).withMessage('Duration must be at least 1 day'),
+  body('is_demo').optional().isBoolean(),
   body('module_ids').optional().isArray(),
   body('module_ids.*').optional().isInt({ min: 1 })
 ];
@@ -93,16 +95,18 @@ const updatePackageValidation = [
   body('description').optional().trim(),
   body('price_monthly').optional().isFloat({ min: 0 }),
   body('price_annual').optional().isFloat({ min: 0 }),
+  body('duration_days').optional().isInt({ min: 1 }),
   body('annual_discount_percent').optional().isFloat({ min: 0, max: 100 }),
   body('employee_limit').optional().isInt({ min: 1 }),
   body('is_active').optional().isBoolean(),
+  body('is_demo').optional().isBoolean(),
   body('module_ids').optional().isArray(),
   body('module_ids.*').optional().isInt({ min: 1 })
 ];
 
 const assignSubscriptionValidation = [
   body('package_id').isInt({ min: 1 }).withMessage('package_id is required'),
-  body('billing_cycle').isIn(['MONTHLY', 'ANNUAL']).withMessage('billing_cycle must be MONTHLY or ANNUAL'),
+  body('billing_cycle').optional().isIn(['MONTHLY', 'ANNUAL']),
   body('started_at').optional().isISO8601().withMessage('started_at must be valid date')
 ];
 
