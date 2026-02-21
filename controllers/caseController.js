@@ -85,6 +85,19 @@ const createCase = async (req, res, next) => {
       finalCourtroomId = room.id;
     }
 
+    const caseTitleTrim = (case_title || '').trim();
+    if (!caseTitleTrim) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: 'Case title is required' });
+    }
+    const existingByTitle = await Case.findOne({
+      where: { organization_id: user.organization_id, case_title: caseTitleTrim, is_deleted: false }
+    });
+    if (existingByTitle) {
+      await t.rollback();
+      return res.status(409).json({ success: false, message: 'Case title already exists in this organization' });
+    }
+
     let finalCaseNumber = (case_number || '').trim();
     if (!finalCaseNumber) {
       finalCaseNumber = await generateCaseNumber(user.organization_id);
@@ -103,7 +116,7 @@ const createCase = async (req, res, next) => {
       client_id,
       created_by: user.id,
       assigned_to: assigned_to || null,
-      case_title: case_title.trim(),
+      case_title: caseTitleTrim,
       case_number: finalCaseNumber,
       court_id: finalCourtId,
       bench_id: finalBenchId,
@@ -142,7 +155,17 @@ const updateCase = async (req, res, next) => {
     if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
     const { case_title, case_number, court_id, bench_id, judge_id, courtroom_id, case_type, status, priority, filing_date, next_hearing_date, description, assigned_to } = req.body;
     const updates = {};
-    if (case_title !== undefined) updates.case_title = case_title.trim();
+    if (case_title !== undefined) {
+      const titleTrim = case_title.trim();
+      if (!titleTrim) return res.status(400).json({ success: false, message: 'Case title cannot be empty' });
+      if (titleTrim !== caseRecord.case_title) {
+        const existingByTitle = await Case.findOne({
+          where: { organization_id: user.organization_id, case_title: titleTrim, is_deleted: false, id: { [Op.ne]: caseRecord.id } }
+        });
+        if (existingByTitle) return res.status(409).json({ success: false, message: 'Case title already exists in this organization' });
+      }
+      updates.case_title = titleTrim;
+    }
     if (case_number !== undefined) updates.case_number = case_number.trim();
     if (court_id !== undefined) {
       updates.court_id = court_id ? (await Court.findOne({ where: { id: court_id, organization_id: user.organization_id } }) ? court_id : null) : null;
