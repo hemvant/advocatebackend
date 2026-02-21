@@ -20,6 +20,12 @@ AuditLog.init(
       type: DataTypes.INTEGER,
       allowNull: true
     },
+    user_name: { type: DataTypes.STRING(255), allowNull: true },
+    user_role: { type: DataTypes.STRING(50), allowNull: true },
+    module_name: { type: DataTypes.STRING(100), allowNull: true },
+    action_summary: { type: DataTypes.TEXT, allowNull: true },
+    user_agent: { type: DataTypes.STRING(500), allowNull: true },
+    log_hash: { type: DataTypes.STRING(64), allowNull: true },
     entity_type: {
       type: DataTypes.STRING(50),
       allowNull: false

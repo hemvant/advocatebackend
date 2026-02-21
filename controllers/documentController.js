@@ -105,6 +105,7 @@ async function uploadDocument(req, res, next) {
       entity_type: 'DOCUMENT',
       entity_id: doc.id,
       action_type: 'CREATE',
+      entity_label: doc.document_name || doc.original_file_name || 'Document',
       old_value: null,
       new_value: created ? created.toJSON() : doc.toJSON()
     });
@@ -282,7 +283,9 @@ async function restoreDocumentVersion(req, res, next) {
       user_id: req.user.id,
       entity_type: 'DOCUMENT',
       entity_id: doc.id,
-      action_type: 'UPDATE',
+      action_type: 'RESTORE',
+      entity_label: doc.document_name || doc.original_file_name,
+      action_summary: `Document restored to version ${version.version_number} by ${req.user.name || 'Admin'} (${req.user.role}).`,
       old_value: { version_number: doc.version_number - 1 },
       new_value: { version_number: newVersionNum, restored_from_version: version.version_number }
     });
@@ -300,6 +303,14 @@ async function downloadDocument(req, res, next) {
     const absolutePath = path.join(UPLOAD_BASE, doc.file_path);
     if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: 'File not found on disk' });
     const name = doc.original_file_name || doc.document_name || 'document';
+    await auditService.log(req, {
+      organization_id: req.user.organization_id,
+      user_id: req.user.id,
+      entity_type: 'DOCUMENT',
+      entity_id: doc.id,
+      action_type: 'DOWNLOAD',
+      entity_label: name
+    });
     res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/"/g, '%22')}"`);
     res.setHeader('Content-Type', doc.mime_type || 'application/octet-stream');
     res.sendFile(absolutePath);
@@ -348,6 +359,7 @@ async function updateDocumentMetadata(req, res, next) {
       entity_type: 'DOCUMENT',
       entity_id: doc.id,
       action_type: 'UPDATE',
+      entity_label: doc.document_name || doc.original_file_name,
       old_value: oldSnapshot,
       new_value: updated ? updated.toJSON() : { ...oldSnapshot, document_name: doc.document_name, document_type: doc.document_type }
     });
@@ -453,6 +465,7 @@ async function softDeleteDocument(req, res, next) {
       entity_type: 'DOCUMENT',
       entity_id: doc.id,
       action_type: 'DELETE',
+      entity_label: doc.document_name || doc.original_file_name,
       old_value: oldSnapshot,
       new_value: { is_deleted: true }
     });

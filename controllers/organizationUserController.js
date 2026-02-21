@@ -1,6 +1,7 @@
 const { OrganizationUser, Organization, Module, EmployeeModule } = require('../models');
 const bcrypt = require('bcrypt');
 const auditService = require('../utils/auditService');
+const { getActiveSubscription } = require('../utils/subscriptionService');
 
 const list = async (req, res, next) => {
   try {
@@ -44,6 +45,16 @@ const create = async (req, res, next) => {
     const existing = await OrganizationUser.findOne({ where: { email } });
     if (existing) {
       return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+    const sub = await getActiveSubscription(organizationId);
+    if (sub && sub.Package && sub.Package.employee_limit != null) {
+      const count = await OrganizationUser.count({ where: { organization_id: organizationId } });
+      if (count >= sub.Package.employee_limit) {
+        return res.status(403).json({
+          success: false,
+          message: `Employee limit reached (${sub.Package.employee_limit}). Upgrade your plan to add more employees.`
+        });
+      }
     }
     const user = await OrganizationUser.create({
       organization_id: organizationId,

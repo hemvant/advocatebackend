@@ -1,4 +1,4 @@
-const { Organization, OrganizationUser, Module, Client, Case, Invoice, AuditLog, Subscription, ImpersonationLog } = require('../models');
+const { Organization, OrganizationUser, Module, Client, Case, Invoice, AuditLog, Subscription, Package, ImpersonationLog } = require('../models');
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
@@ -58,6 +58,11 @@ async function getOrganizationDetail(req, res, next) {
     ]);
     const employeeCount = await OrganizationUser.count({ where: { organization_id: org.id } });
     const activeSubs = await Subscription.count({ where: { organization_id: org.id, status: 'ACTIVE' } });
+    const activeSubscription = await Subscription.findOne({
+      where: { organization_id: org.id, status: 'ACTIVE' },
+      include: [{ model: Package, as: 'Package', attributes: ['id', 'name', 'employee_limit', 'price_monthly', 'price_annual'], required: false }],
+      order: [['id', 'DESC']]
+    });
 
     res.json({
       success: true,
@@ -68,6 +73,7 @@ async function getOrganizationDetail(req, res, next) {
         employee_count: employeeCount,
         revenue_total: Number(revenueSum || 0),
         active_subscriptions: activeSubs,
+        active_subscription: activeSubscription ? activeSubscription.toJSON() : null,
         recent_audit_logs: recentAudit,
         module_usage: (org.Modules || []).map((m) => m.name)
       }

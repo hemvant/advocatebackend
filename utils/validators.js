@@ -42,6 +42,8 @@ const createOrganizationValidation = [
   body('phone').optional().trim().isLength({ max: 50 }),
   body('address').optional().trim(),
   body('subscription_plan').optional().trim().isLength({ max: 100 }),
+  body('package_id').optional().isInt({ min: 1 }),
+  body('billing_cycle').optional().isIn(['MONTHLY', 'ANNUAL']),
   body('org_admin_name').trim().notEmpty().withMessage('Org admin name is required').isLength({ max: 255 }),
   body('org_admin_email').trim().notEmpty().withMessage('Org admin email is required').isEmail().normalizeEmail(),
   body('org_admin_password').notEmpty().withMessage('Org admin password is required').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
@@ -73,6 +75,51 @@ const updateOrgUserValidation = [
 const assignOrgModulesValidation = [
   body('module_ids').isArray().withMessage('module_ids must be an array'),
   body('module_ids.*').isInt({ min: 1 }).withMessage('Each module_id must be a positive integer')
+];
+
+const createPackageValidation = [
+  body('name').trim().notEmpty().withMessage('Package name is required').isLength({ max: 100 }),
+  body('description').optional().trim(),
+  body('price_monthly').isFloat({ min: 0 }).withMessage('Monthly price must be non-negative'),
+  body('price_annual').isFloat({ min: 0 }).withMessage('Annual price must be non-negative'),
+  body('annual_discount_percent').optional().isFloat({ min: 0, max: 100 }),
+  body('employee_limit').isInt({ min: 1 }).withMessage('Employee limit must be at least 1'),
+  body('module_ids').optional().isArray(),
+  body('module_ids.*').optional().isInt({ min: 1 })
+];
+
+const updatePackageValidation = [
+  body('name').optional().trim().notEmpty().isLength({ max: 100 }),
+  body('description').optional().trim(),
+  body('price_monthly').optional().isFloat({ min: 0 }),
+  body('price_annual').optional().isFloat({ min: 0 }),
+  body('annual_discount_percent').optional().isFloat({ min: 0, max: 100 }),
+  body('employee_limit').optional().isInt({ min: 1 }),
+  body('is_active').optional().isBoolean(),
+  body('module_ids').optional().isArray(),
+  body('module_ids.*').optional().isInt({ min: 1 })
+];
+
+const assignSubscriptionValidation = [
+  body('package_id').isInt({ min: 1 }).withMessage('package_id is required'),
+  body('billing_cycle').isIn(['MONTHLY', 'ANNUAL']).withMessage('billing_cycle must be MONTHLY or ANNUAL'),
+  body('started_at').optional().isISO8601().withMessage('started_at must be valid date')
+];
+
+const createInvoiceValidation = [
+  body('organization_id').isInt({ min: 1 }).withMessage('organization_id is required'),
+  body('amount').isFloat({ min: 0 }).withMessage('amount must be non-negative'),
+  body('currency').optional().trim().isLength({ max: 3 }),
+  body('subscription_id').optional().isInt({ min: 1 }),
+  body('package_id').optional().isInt({ min: 1 }),
+  body('billing_cycle').optional().isIn(['MONTHLY', 'ANNUAL']),
+  body('period_start').optional().isDate(),
+  body('period_end').optional().isDate(),
+  body('due_date').optional().isDate()
+];
+
+const markInvoicePaidValidation = [
+  body('paid_at').optional().isISO8601()
 ];
 
 const assignEmployeeModulesValidation = [
@@ -288,6 +335,11 @@ module.exports = {
   orgLoginValidation,
   createOrganizationValidation,
   updateOrganizationValidation,
+  createPackageValidation,
+  updatePackageValidation,
+  assignSubscriptionValidation,
+  createInvoiceValidation,
+  markInvoicePaidValidation,
   createOrgUserValidation,
   updateOrgUserValidation,
   assignOrgModulesValidation,

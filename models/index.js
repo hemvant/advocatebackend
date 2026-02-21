@@ -30,6 +30,8 @@ const SuperAdminLoginAttempt = require('./SuperAdminLoginAttempt')(sequelize, re
 const ImpersonationLog = require('./ImpersonationLog');
 const Subscription = require('./Subscription');
 const Invoice = require('./Invoice');
+const Package = require('./Package');
+const PackageModule = require('./PackageModule');
 
 Organization.hasMany(OrganizationUser, { foreignKey: 'organization_id' });
 OrganizationUser.belongsTo(Organization, { foreignKey: 'organization_id' });
@@ -180,8 +182,31 @@ OrganizationUser.hasMany(AuditLog, { foreignKey: 'user_id' });
 
 Organization.hasMany(Subscription, { foreignKey: 'organization_id' });
 Subscription.belongsTo(Organization, { foreignKey: 'organization_id' });
+Subscription.belongsTo(Package, { foreignKey: 'package_id' });
+Package.hasMany(Subscription, { foreignKey: 'package_id' });
 Organization.hasMany(Invoice, { foreignKey: 'organization_id' });
 Invoice.belongsTo(Organization, { foreignKey: 'organization_id' });
+Invoice.belongsTo(Subscription, { foreignKey: 'subscription_id' });
+Subscription.hasMany(Invoice, { foreignKey: 'subscription_id' });
+Invoice.belongsTo(Package, { foreignKey: 'package_id' });
+Package.hasMany(Invoice, { foreignKey: 'package_id' });
+
+Package.belongsToMany(Module, {
+  through: PackageModule,
+  foreignKey: 'package_id',
+  otherKey: 'module_id',
+  as: 'Modules'
+});
+Module.belongsToMany(Package, {
+  through: PackageModule,
+  foreignKey: 'module_id',
+  otherKey: 'package_id',
+  as: 'Packages'
+});
+PackageModule.belongsTo(Package, { foreignKey: 'package_id' });
+PackageModule.belongsTo(Module, { foreignKey: 'module_id' });
+Package.hasMany(PackageModule, { foreignKey: 'package_id' });
+Module.hasMany(PackageModule, { foreignKey: 'module_id' });
 
 module.exports = {
   sequelize,
@@ -215,5 +240,7 @@ module.exports = {
   SuperAdminLoginAttempt,
   ImpersonationLog,
   Subscription,
-  Invoice
+  Invoice,
+  Package,
+  PackageModule
 };

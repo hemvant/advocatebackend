@@ -1,4 +1,5 @@
-const { Organization, OrganizationUser, OrganizationModule, Module } = require('../models');
+const { Organization, OrganizationUser, OrganizationModule, Module, Package, Subscription } = require('../models');
+const { syncOrgModulesFromPackage } = require('../utils/subscriptionService');
 
 const list = async (req, res, next) => {
   try {
@@ -31,7 +32,7 @@ const getOne = async (req, res, next) => {
 
 const create = async (req, res, next) => {
   try {
-    const { name, email, phone, address, subscription_plan, org_admin_name, org_admin_email, org_admin_password } = req.body;
+    const { name, email, phone, address, subscription_plan, org_admin_name, org_admin_email, org_admin_password, package_id, billing_cycle } = req.body;
     const existingOrg = await Organization.findOne({ where: { name } });
     if (existingOrg) {
       return res.status(409).json({ success: false, message: 'Organization name already exists' });
@@ -57,6 +58,25 @@ const create = async (req, res, next) => {
       is_active: true,
       is_approved: true
     });
+    if (package_id && billing_cycle && (billing_cycle === 'MONTHLY' || billing_cycle === 'ANNUAL')) {
+      const pkg = await Package.findByPk(package_id);
+      if (pkg) {
+        const start = new Date();
+        const expiresAt = billing_cycle === 'ANNUAL'
+          ? new Date(start.getFullYear() + 1, start.getMonth(), start.getDate())
+          : new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        await Subscription.create({
+          organization_id: org.id,
+          package_id: pkg.id,
+          plan: pkg.name,
+          billing_cycle,
+          status: 'ACTIVE',
+          started_at: start,
+          expires_at: expiresAt
+        });
+        await syncOrgModulesFromPackage(org.id, pkg.id);
+      }
+    }
     const orgResponse = org.toJSON();
     orgResponse.org_admin = orgAdmin.toJSON();
     res.status(201).json({ success: true, data: orgResponse, message: 'Organization and org admin created' });

@@ -35,6 +35,7 @@ const login = async (req, res, next) => {
     await auditService.log(req, {
       organization_id: user.organization_id,
       user_id: user.id,
+      module_name: 'AUTH',
       entity_type: 'EMPLOYEE',
       entity_id: user.id,
       action_type: 'LOGIN',

@@ -12,6 +12,7 @@ const courtroomRoutes = require('./courtroomRoutes');
 const auditLogRoutes = require('./auditLogRoutes');
 const analyticsRoutes = require('./analyticsRoutes');
 const taskRoutes = require('./taskRoutes');
+const billingRoutes = require('./billingRoutes');
 const organizationAuth = require('../middleware/organizationAuth');
 const { moduleAccessMiddleware } = require('../middleware/moduleAccess');
 
@@ -30,6 +31,7 @@ router.use('/courtrooms', organizationAuth, moduleAccessMiddleware('Case Managem
 router.use('/audit-logs', organizationAuth, moduleAccessMiddleware('Reports'), auditLogRoutes);
 router.use('/analytics', organizationAuth, moduleAccessMiddleware('Reports'), analyticsRoutes);
 router.use('/tasks', organizationAuth, moduleAccessMiddleware('Case Management'), taskRoutes);
+router.use('/billing', organizationAuth, moduleAccessMiddleware('Billing'), billingRoutes);
 
 router.get('/health', (req, res) => {
   res.json({ success: true, message: 'OK' });

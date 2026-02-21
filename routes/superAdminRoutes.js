@@ -14,6 +14,9 @@ const superAdminSystemController = require('../controllers/superAdminSystemContr
 const superAdminOrganizationController = require('../controllers/superAdminOrganizationController');
 const superAdminAuditController = require('../controllers/superAdminAuditController');
 const superAdminSubscriptionsController = require('../controllers/superAdminSubscriptionsController');
+const superAdminPackageController = require('../controllers/superAdminPackageController');
+const superAdminInvoiceController = require('../controllers/superAdminInvoiceController');
+const { createPackageValidation, updatePackageValidation, assignSubscriptionValidation, createInvoiceValidation, markInvoicePaidValidation } = require('../utils/validators');
 
 const router = express.Router();
 
@@ -45,6 +48,18 @@ router.post('/organizations/:organizationId/impersonate', superAdminAuth, superA
 router.put('/organizations/:id/reset-admin-password', superAdminAuth, sanitizeBody, resetOrgAdminPasswordValidation, validate, superAdminOrganizationController.resetOrgAdminPassword);
 
 router.get('/subscriptions', superAdminAuth, superAdminSubscriptionsController.listSubscriptions);
+router.post('/organizations/:organizationId/subscription', superAdminAuth, sanitizeBody, assignSubscriptionValidation, validate, superAdminSubscriptionsController.assignSubscription);
+
+router.get('/packages', superAdminAuth, superAdminPackageController.listPackages);
+router.get('/packages/:id', superAdminAuth, superAdminPackageController.getPackage);
+router.post('/packages', superAdminAuth, sanitizeBody, createPackageValidation, validate, superAdminPackageController.createPackage);
+router.put('/packages/:id', superAdminAuth, sanitizeBody, updatePackageValidation, validate, superAdminPackageController.updatePackage);
+router.delete('/packages/:id', superAdminAuth, superAdminPackageController.deletePackage);
+
+router.get('/invoices', superAdminAuth, superAdminInvoiceController.listInvoices);
+router.post('/invoices', superAdminAuth, sanitizeBody, createInvoiceValidation, validate, superAdminInvoiceController.createInvoice);
+router.put('/invoices/:id/mark-paid', superAdminAuth, sanitizeBody, markInvoicePaidValidation, validate, superAdminInvoiceController.markInvoicePaid);
+
 router.get('/audit-logs', superAdminAuth, superAdminAuditController.listPlatformAuditLogs);
 
 router.get('/modules', superAdminAuth, moduleController.listAll);
