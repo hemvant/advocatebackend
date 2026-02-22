@@ -86,6 +86,11 @@ const Case = sequelize.define('Case', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false
+  },
+  case_lifecycle_status: {
+    type: DataTypes.ENUM('Active', 'Closed', 'On_Hold', 'Appeal'),
+    allowNull: false,
+    defaultValue: 'Active'
   }
 }, {
   tableName: 'cases',

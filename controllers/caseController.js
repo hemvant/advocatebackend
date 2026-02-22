@@ -1,4 +1,4 @@
-const { sequelize, Case, CaseHearing, CaseDocument, Client, OrganizationUser, Court, CourtType, CourtBench, Judge, Courtroom, CasePermission } = require('../models');
+const { sequelize, Case, CaseHearing, CaseDocument, Client, OrganizationUser, Court, CourtType, CourtBench, Judge, Courtroom, CasePermission, CaseAssignmentHistory, CaseJudgeHistory } = require('../models');
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
 const cache = require('../utils/cache');
@@ -42,12 +42,40 @@ async function getCaseWithAccess(caseId, user) {
       { model: CourtBench, as: 'Bench', attributes: ['id', 'name'] },
       { model: Judge, as: 'Judge', attributes: ['id', 'name', 'designation'] },
       { model: Courtroom, as: 'Courtroom', attributes: ['id', 'room_number', 'floor'] },
-      { model: CaseHearing, as: 'CaseHearings' },
-      { model: CaseDocument, as: 'CaseDocuments', include: [{ model: OrganizationUser, as: 'Uploader', attributes: ['id', 'name'] }] }
+      {
+        model: CaseHearing,
+        as: 'CaseHearings',
+        where: { is_deleted: false },
+        required: false,
+        include: [
+          { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] },
+          { model: Judge, as: 'Judge', attributes: ['id', 'name', 'designation'] }
+        ]
+      },
+      { model: CaseDocument, as: 'CaseDocuments', include: [{ model: OrganizationUser, as: 'Uploader', attributes: ['id', 'name'] }] },
+      {
+        model: CaseAssignmentHistory,
+        as: 'AssignmentHistory',
+        include: [
+          { model: OrganizationUser, as: 'Employee', attributes: ['id', 'name', 'email', 'status'] },
+          { model: OrganizationUser, as: 'AssignedByUser', attributes: ['id', 'name'] }
+        ],
+        order: [['assigned_at', 'DESC']]
+      },
+      {
+        model: CaseJudgeHistory,
+        as: 'JudgeHistory',
+        include: [{ model: Judge, as: 'Judge', attributes: ['id', 'name', 'designation', 'status'] }],
+        order: [['assigned_at', 'DESC']]
+      }
     ],
   });
   if (caseRecord && caseRecord.CaseHearings && caseRecord.CaseHearings.length) {
-    caseRecord.CaseHearings.sort((a, b) => (a.hearing_date || '').localeCompare(b.hearing_date || ''));
+    caseRecord.CaseHearings.sort((a, b) => {
+      const n = (a.hearing_number ?? 999999) - (b.hearing_number ?? 999999);
+      if (n !== 0) return n;
+      return (a.hearing_date || '').localeCompare(b.hearing_date || '');
+    });
   }
   return caseRecord;
 }
@@ -130,6 +158,43 @@ const createCase = async (req, res, next) => {
       description: description || null,
       is_deleted: false
     }, { transaction: t });
+    if (assigned_to) {
+      const emp = await OrganizationUser.findOne({
+        where: { id: assigned_to, organization_id: user.organization_id },
+        attributes: ['id', 'status']
+      });
+      if (!emp) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Assigned employee not found' });
+      }
+      if (emp.status !== 'active') {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Cannot assign case to inactive or left employee' });
+      }
+      await CaseAssignmentHistory.create({
+        case_id: caseRecord.id,
+        employee_id: assigned_to,
+        assigned_at: new Date(),
+        assigned_by: user.id,
+        reason: null
+      }, { transaction: t });
+    }
+    if (finalJudgeId) {
+      const judge = await Judge.findOne({
+        where: { id: finalJudgeId, organization_id: user.organization_id },
+        attributes: ['id', 'status', 'is_active']
+      });
+      if (judge && judge.status !== 'active') {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Cannot assign inactive or transferred judge' });
+      }
+      await CaseJudgeHistory.create({
+        case_id: caseRecord.id,
+        judge_id: finalJudgeId,
+        assigned_at: new Date(),
+        transfer_reason: null
+      }, { transaction: t });
+    }
     await t.commit();
     const created = await getCaseWithAccess(caseRecord.id, user);
     await auditService.log(req, {
@@ -149,30 +214,42 @@ const createCase = async (req, res, next) => {
 };
 
 const updateCase = async (req, res, next) => {
+  const t = await sequelize.transaction();
   try {
     const user = req.user;
     const caseRecord = await getCaseWithAccess(req.params.id, user);
-    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
-    const { case_title, case_number, court_id, bench_id, judge_id, courtroom_id, case_type, status, priority, filing_date, next_hearing_date, description, assigned_to } = req.body;
+    if (!caseRecord) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: 'Case not found' });
+    }
+    const { case_title, case_number, court_id, bench_id, judge_id, courtroom_id, case_type, status, priority, filing_date, next_hearing_date, description, assigned_to, case_lifecycle_status } = req.body;
     const updates = {};
     if (case_title !== undefined) {
       const titleTrim = case_title.trim();
-      if (!titleTrim) return res.status(400).json({ success: false, message: 'Case title cannot be empty' });
+      if (!titleTrim) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Case title cannot be empty' });
+      }
       if (titleTrim !== caseRecord.case_title) {
         const existingByTitle = await Case.findOne({
           where: { organization_id: user.organization_id, case_title: titleTrim, is_deleted: false, id: { [Op.ne]: caseRecord.id } }
         });
-        if (existingByTitle) return res.status(409).json({ success: false, message: 'Case title already exists in this organization' });
+        if (existingByTitle) {
+          await t.rollback();
+          return res.status(409).json({ success: false, message: 'Case title already exists in this organization' });
+        }
       }
       updates.case_title = titleTrim;
     }
     if (case_number !== undefined) updates.case_number = case_number.trim();
     if (court_id !== undefined) {
       updates.court_id = court_id ? (await Court.findOne({ where: { id: court_id, organization_id: user.organization_id } }) ? court_id : null) : null;
-      if (court_id && !updates.court_id) return res.status(400).json({ success: false, message: 'Court not found' });
+      if (court_id && !updates.court_id) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Court not found' });
+      }
     }
     if (bench_id !== undefined) updates.bench_id = bench_id || null;
-    if (judge_id !== undefined) updates.judge_id = judge_id || null;
     if (courtroom_id !== undefined) updates.courtroom_id = courtroom_id || null;
     if (case_type !== undefined) updates.case_type = case_type;
     if (status !== undefined) updates.status = status;
@@ -180,9 +257,86 @@ const updateCase = async (req, res, next) => {
     if (filing_date !== undefined) updates.filing_date = filing_date || null;
     if (next_hearing_date !== undefined) updates.next_hearing_date = next_hearing_date || null;
     if (description !== undefined) updates.description = description || null;
-    if (assigned_to !== undefined && user.role === 'ORG_ADMIN') updates.assigned_to = assigned_to || null;
+    if (case_lifecycle_status !== undefined) updates.case_lifecycle_status = case_lifecycle_status;
+
+    if (assigned_to !== undefined && user.role === 'ORG_ADMIN') {
+      const newAssigneeId = assigned_to || null;
+      if (newAssigneeId !== caseRecord.assigned_to) {
+        if (newAssigneeId) {
+          const emp = await OrganizationUser.findOne({
+            where: { id: newAssigneeId, organization_id: user.organization_id },
+            attributes: ['id', 'status']
+          });
+          if (!emp) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Assigned employee not found' });
+          }
+          if (emp.status !== 'active') {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Cannot assign case to inactive or left employee' });
+          }
+        }
+        const currentOpen = await CaseAssignmentHistory.findOne({
+          where: { case_id: caseRecord.id, unassigned_at: null },
+          order: [['assigned_at', 'DESC']],
+          transaction: t
+        });
+        if (currentOpen) {
+          await currentOpen.update({ unassigned_at: new Date(), reason: newAssigneeId ? 'reassigned' : 'unassigned' }, { transaction: t });
+        }
+        if (newAssigneeId) {
+          await CaseAssignmentHistory.create({
+            case_id: caseRecord.id,
+            employee_id: newAssigneeId,
+            assigned_at: new Date(),
+            assigned_by: user.id,
+            reason: null
+          }, { transaction: t });
+        }
+        updates.assigned_to = newAssigneeId;
+      }
+    }
+
+    if (judge_id !== undefined) {
+      const newJudgeId = judge_id || null;
+      if (String(newJudgeId) !== String(caseRecord.judge_id)) {
+        if (newJudgeId) {
+          const judge = await Judge.findOne({
+            where: { id: newJudgeId, organization_id: user.organization_id },
+            attributes: ['id', 'status']
+          });
+          if (!judge) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Judge not found' });
+          }
+          if (judge.status !== 'active') {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Cannot assign inactive or transferred judge' });
+          }
+        }
+        const currentJudgeOpen = await CaseJudgeHistory.findOne({
+          where: { case_id: caseRecord.id, unassigned_at: null },
+          order: [['assigned_at', 'DESC']],
+          transaction: t
+        });
+        if (currentJudgeOpen) {
+          await currentJudgeOpen.update({ unassigned_at: new Date(), transfer_reason: 'reassigned' }, { transaction: t });
+        }
+        if (newJudgeId) {
+          await CaseJudgeHistory.create({
+            case_id: caseRecord.id,
+            judge_id: newJudgeId,
+            assigned_at: new Date(),
+            transfer_reason: null
+          }, { transaction: t });
+        }
+        updates.judge_id = newJudgeId;
+      }
+    }
+
     const oldSnapshot = caseRecord.toJSON();
-    await caseRecord.update(updates);
+    await caseRecord.update(updates, { transaction: t });
+    await t.commit();
     const updated = await getCaseWithAccess(caseRecord.id, user);
     await auditService.log(req, {
       organization_id: user.organization_id,
@@ -195,6 +349,7 @@ const updateCase = async (req, res, next) => {
     });
     res.json({ success: true, data: updated });
   } catch (err) {
+    await t.rollback();
     next(err);
   }
 };
@@ -335,11 +490,33 @@ const listCases = async (req, res, next) => {
 };
 
 const addHearing = async (req, res, next) => {
+  const t = await sequelize.transaction();
   try {
     const user = req.user;
     const caseRecord = await getCaseWithAccess(req.params.id, user);
-    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
-    const { hearing_date, courtroom, courtroom_id, judge_id, bench_id, remarks } = req.body;
+    if (!caseRecord) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: 'Case not found' });
+    }
+    const { hearing_date, courtroom, courtroom_id, judge_id, bench_id, remarks, outcome_status, outcome_notes, next_hearing_date } = req.body;
+    const lastHearing = await CaseHearing.findOne({
+      where: { case_id: caseRecord.id, is_deleted: false },
+      order: [['hearing_number', 'DESC'], ['hearing_date', 'DESC']],
+      attributes: ['id', 'hearing_number']
+    });
+    const hearingNumber = (lastHearing?.hearing_number ?? 0) + 1;
+    const previousHearingId = lastHearing?.id || null;
+    const judgeIdForHearing = judge_id || caseRecord.judge_id || null;
+    if (judgeIdForHearing) {
+      const judge = await Judge.findOne({
+        where: { id: judgeIdForHearing, organization_id: user.organization_id },
+        attributes: ['id', 'status']
+      });
+      if (judge && judge.status !== 'active') {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Cannot assign inactive or transferred judge to hearing' });
+      }
+    }
     const hearing = await CaseHearing.create({
       case_id: caseRecord.id,
       organization_id: caseRecord.organization_id,
@@ -347,12 +524,29 @@ const addHearing = async (req, res, next) => {
       hearing_date: hearing_date ? new Date(hearing_date) : null,
       courtroom: courtroom || null,
       courtroom_id: courtroom_id || null,
-      judge_id: judge_id || null,
+      judge_id: judgeIdForHearing,
       bench_id: bench_id || null,
       hearing_type: 'REGULAR',
       status: 'UPCOMING',
       remarks: remarks || null,
-      reminder_sent: false
+      reminder_sent: false,
+      hearing_number: hearingNumber,
+      previous_hearing_id: previousHearingId,
+      outcome_status: outcome_status || null,
+      outcome_notes: outcome_notes || null,
+      next_hearing_date: next_hearing_date || null,
+      is_deleted: false
+    }, { transaction: t });
+    const completedStatuses = ['completed', 'disposed'];
+    if (outcome_status && completedStatuses.includes(String(outcome_status).toLowerCase())) {
+      await caseRecord.update({ case_lifecycle_status: 'Closed' }, { transaction: t });
+    }
+    await t.commit();
+    const created = await CaseHearing.findByPk(hearing.id, {
+      include: [
+        { model: Judge, as: 'Judge', attributes: ['id', 'name', 'designation'] },
+        { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] }
+      ]
     });
     await auditService.log(req, {
       organization_id: user.organization_id,
@@ -361,10 +555,11 @@ const addHearing = async (req, res, next) => {
       entity_id: hearing.id,
       action_type: 'CREATE',
       old_value: null,
-      new_value: hearing.toJSON()
+      new_value: created ? created.toJSON() : hearing.toJSON()
     });
-    res.status(201).json({ success: true, data: hearing });
+    res.status(201).json({ success: true, data: created || hearing });
   } catch (err) {
+    await t.rollback();
     next(err);
   }
 };
@@ -379,7 +574,7 @@ const removeHearing = async (req, res, next) => {
     });
     if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
     const oldSnapshot = hearing.toJSON();
-    await hearing.destroy();
+    await hearing.update({ is_deleted: true });
     await auditService.log(req, {
       organization_id: user.organization_id,
       user_id: user.id,
@@ -387,7 +582,7 @@ const removeHearing = async (req, res, next) => {
       entity_id: hearing.id,
       action_type: 'DELETE',
       old_value: oldSnapshot,
-      new_value: null
+      new_value: { ...oldSnapshot, is_deleted: true }
     });
     res.json({ success: true, message: 'Hearing removed' });
   } catch (err) {

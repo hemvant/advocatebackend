@@ -50,7 +50,7 @@ const updateJudge = async (req, res, next) => {
     if (!canManage(req.user)) return res.status(403).json({ success: false, message: 'Only org admin can manage judges' });
     const judge = await Judge.findOne({ where: { id: req.params.id, organization_id: req.user.organization_id } });
     if (!judge) return res.status(404).json({ success: false, message: 'Judge not found' });
-    const { court_id, bench_id, name, designation, is_active } = req.body;
+    const { court_id, bench_id, name, designation, is_active, status } = req.body;
     if (court_id !== undefined) {
       const court = await Court.findOne({ where: { id: court_id, organization_id: req.user.organization_id } });
       if (!court) return res.status(404).json({ success: false, message: 'Court not found' });
@@ -62,7 +62,13 @@ const updateJudge = async (req, res, next) => {
     }
     if (name !== undefined) judge.name = name.trim();
     if (designation !== undefined) judge.designation = designation ? designation.trim() : null;
-    if (is_active !== undefined) judge.is_active = !!is_active;
+    if (status !== undefined) {
+      judge.status = status;
+      judge.is_active = status === 'active';
+    } else if (is_active !== undefined) {
+      judge.is_active = !!is_active;
+      if (!judge.is_active && judge.status === 'active') judge.status = 'transferred';
+    }
     await judge.save();
     const updated = await Judge.findByPk(judge.id, {
       include: [
@@ -82,6 +88,7 @@ const deactivateJudge = async (req, res, next) => {
     const judge = await Judge.findOne({ where: { id: req.params.id, organization_id: req.user.organization_id } });
     if (!judge) return res.status(404).json({ success: false, message: 'Judge not found' });
     judge.is_active = false;
+    judge.status = 'transferred';
     await judge.save();
     res.json({ success: true, data: judge, message: 'Judge deactivated' });
   } catch (err) {

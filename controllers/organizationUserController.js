@@ -63,7 +63,8 @@ const create = async (req, res, next) => {
       password,
       role: role || 'EMPLOYEE',
       is_active: true,
-      is_approved: false
+      is_approved: false,
+      status: 'active'
     });
     const userResponse = user.toJSON();
     await auditService.log(req, {
@@ -90,9 +91,14 @@ const update = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    const { name, is_active, is_approved, role } = req.body;
+    const { name, is_active, is_approved, role, status } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
+    if (status !== undefined) {
+      updates.status = status;
+      if (status === 'left') updates.is_active = false;
+      else if (status === 'active') updates.is_active = true;
+    }
     if (is_active !== undefined) updates.is_active = is_active;
     if (is_approved !== undefined) updates.is_approved = is_approved;
     if (role !== undefined) updates.role = role;

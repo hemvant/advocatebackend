@@ -40,6 +40,11 @@ const OrganizationUser = sequelize.define('OrganizationUser', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false
+  },
+  status: {
+    type: DataTypes.ENUM('active', 'inactive', 'left'),
+    allowNull: false,
+    defaultValue: 'active'
   }
 }, {
   tableName: 'organization_users',

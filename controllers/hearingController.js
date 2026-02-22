@@ -1,4 +1,4 @@
-const { sequelize, CaseHearing, HearingReminder, Case, Client, OrganizationUser } = require('../models');
+const { sequelize, CaseHearing, HearingReminder, Case, Client, OrganizationUser, Judge } = require('../models');
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
 const cache = require('../utils/cache');
@@ -16,12 +16,13 @@ function buildHearingWhere(user) {
 }
 
 async function getHearingWithAccess(hearingId, user) {
-  const where = buildHearingWhere(user);
+  const where = { ...buildHearingWhere(user), is_deleted: false };
   const hearing = await CaseHearing.findOne({
     where: { id: hearingId, ...where },
     include: [
       { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number', 'client_id'], include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] },
       { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] },
+      { model: Judge, as: 'Judge', attributes: ['id', 'name', 'designation'] },
       { model: HearingReminder, as: 'HearingReminders', order: [['reminder_time', 'ASC']] }
     ]
   });
@@ -32,12 +33,34 @@ const createHearing = async (req, res, next) => {
   const t = await sequelize.transaction();
   try {
     const user = req.user;
-    const { case_id, hearing_date, courtroom, courtroom_id, judge_id, bench_id, hearing_type, status, remarks, reminder_times } = req.body;
+    const { case_id, hearing_date, courtroom, courtroom_id, judge_id, bench_id, hearing_type, status, remarks, reminder_times, outcome_status, outcome_notes, next_hearing_date } = req.body;
 
     const caseRecord = await Case.findOne({
       where: { id: case_id, organization_id: user.organization_id, is_deleted: false }
     });
-    if (!caseRecord) return res.status(400).json({ success: false, message: 'Case not found or access denied' });
+    if (!caseRecord) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: 'Case not found or access denied' });
+    }
+
+    const lastHearing = await CaseHearing.findOne({
+      where: { case_id: caseRecord.id, is_deleted: false },
+      order: [['hearing_number', 'DESC'], ['hearing_date', 'DESC']],
+      attributes: ['id', 'hearing_number']
+    });
+    const hearingNumber = (lastHearing?.hearing_number ?? 0) + 1;
+    const previousHearingId = lastHearing?.id || null;
+    const judgeIdForHearing = judge_id || caseRecord.judge_id || null;
+    if (judgeIdForHearing) {
+      const judge = await Judge.findOne({
+        where: { id: judgeIdForHearing, organization_id: user.organization_id },
+        attributes: ['id', 'status']
+      });
+      if (judge && judge.status !== 'active') {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Cannot assign inactive or transferred judge to hearing' });
+      }
+    }
 
     const hearing = await CaseHearing.create({
       case_id,
@@ -46,13 +69,23 @@ const createHearing = async (req, res, next) => {
       hearing_date: hearing_date ? new Date(hearing_date) : null,
       courtroom: courtroom || null,
       courtroom_id: courtroom_id || null,
-      judge_id: judge_id || null,
+      judge_id: judgeIdForHearing,
       bench_id: bench_id || null,
       hearing_type: hearing_type || 'REGULAR',
       status: status || 'UPCOMING',
       remarks: remarks || null,
-      reminder_sent: false
+      reminder_sent: false,
+      hearing_number: hearingNumber,
+      previous_hearing_id: previousHearingId,
+      outcome_status: outcome_status || null,
+      outcome_notes: outcome_notes || null,
+      next_hearing_date: next_hearing_date || null,
+      is_deleted: false
     }, { transaction: t });
+    const completedStatuses = ['completed', 'disposed'];
+    if (outcome_status && completedStatuses.includes(String(outcome_status).toLowerCase())) {
+      await caseRecord.update({ case_lifecycle_status: 'Closed' }, { transaction: t });
+    }
 
     if (Array.isArray(reminder_times) && reminder_times.length) {
       const reminders = reminder_times.map((r) => ({
@@ -86,7 +119,7 @@ const updateHearing = async (req, res, next) => {
     const user = req.user;
     const hearing = await getHearingWithAccess(req.params.id, user);
     if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
-    const { hearing_date, courtroom, courtroom_id, judge_id, bench_id, hearing_type, status, remarks } = req.body;
+    const { hearing_date, courtroom, courtroom_id, judge_id, bench_id, hearing_type, status, remarks, outcome_status, outcome_notes, next_hearing_date } = req.body;
     const updates = {};
     if (hearing_date !== undefined) updates.hearing_date = hearing_date ? new Date(hearing_date) : null;
     if (courtroom !== undefined) updates.courtroom = courtroom || null;
@@ -96,8 +129,16 @@ const updateHearing = async (req, res, next) => {
     if (hearing_type !== undefined) updates.hearing_type = hearing_type;
     if (status !== undefined) updates.status = status;
     if (remarks !== undefined) updates.remarks = remarks || null;
+    if (outcome_status !== undefined) updates.outcome_status = outcome_status || null;
+    if (outcome_notes !== undefined) updates.outcome_notes = outcome_notes || null;
+    if (next_hearing_date !== undefined) updates.next_hearing_date = next_hearing_date || null;
     const oldSnapshot = hearing.toJSON();
     await hearing.update(updates);
+    const completedStatuses = ['completed', 'disposed'];
+    if (updates.outcome_status && completedStatuses.includes(String(updates.outcome_status).toLowerCase())) {
+      const caseRecord = await Case.findOne({ where: { id: hearing.case_id } });
+      if (caseRecord) await caseRecord.update({ case_lifecycle_status: 'Closed' });
+    }
     const updated = await getHearingWithAccess(hearing.id, user);
     await auditService.log(req, {
       organization_id: user.organization_id,
@@ -120,7 +161,7 @@ const deleteHearing = async (req, res, next) => {
     const hearing = await getHearingWithAccess(req.params.id, user);
     if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
     const oldSnapshot = hearing.toJSON();
-    await hearing.destroy();
+    await hearing.update({ is_deleted: true });
     await auditService.log(req, {
       organization_id: user.organization_id,
       user_id: user.id,
@@ -128,7 +169,7 @@ const deleteHearing = async (req, res, next) => {
       entity_id: hearing.id,
       action_type: 'DELETE',
       old_value: oldSnapshot,
-      new_value: null
+      new_value: { ...oldSnapshot, is_deleted: true }
     });
     res.json({ success: true, message: 'Hearing deleted' });
   } catch (err) {
@@ -150,7 +191,7 @@ const getHearingById = async (req, res, next) => {
 const listHearings = async (req, res, next) => {
   try {
     const user = req.user;
-    const where = buildHearingWhere(user);
+    const where = { ...buildHearingWhere(user), is_deleted: false };
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = (page - 1) * limit;
@@ -188,7 +229,7 @@ const listHearings = async (req, res, next) => {
 const getCalendarView = async (req, res, next) => {
   try {
     const user = req.user;
-    const where = buildHearingWhere(user);
+    const where = { ...buildHearingWhere(user), is_deleted: false };
     const start = req.query.start ? new Date(req.query.start) : new Date(new Date().setDate(1));
     const end = req.query.end ? new Date(req.query.end) : new Date(new Date().setMonth(start.getMonth() + 1));
     where.hearing_date = { [Op.gte]: start, [Op.lte]: end };
@@ -223,7 +264,7 @@ const getDashboardHearings = async (req, res, next) => {
     const key = cache.cacheKey('dashboard:hearing', [user.organization_id, user.id]);
     const cached = await cache.get(key);
     if (cached) return res.json(cached);
-    const where = buildHearingWhere(user);
+    const where = { ...buildHearingWhere(user), is_deleted: false };
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);

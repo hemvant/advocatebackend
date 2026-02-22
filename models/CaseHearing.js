@@ -63,6 +63,32 @@ const CaseHearing = sequelize.define('CaseHearing', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false
+  },
+  hearing_number: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  previous_hearing_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'case_hearings', key: 'id' }
+  },
+  outcome_status: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  outcome_notes: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  next_hearing_date: {
+    type: DataTypes.DATEONLY,
+    allowNull: true
+  },
+  is_deleted: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
   }
 }, {
   tableName: 'case_hearings',

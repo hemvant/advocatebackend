@@ -24,6 +24,8 @@ const AuditLog = require('./AuditLog');
 const CaseTask = require('./CaseTask');
 const CasePermission = require('./CasePermission');
 const DocumentPermission = require('./DocumentPermission');
+const CaseAssignmentHistory = require('./CaseAssignmentHistory');
+const CaseJudgeHistory = require('./CaseJudgeHistory');
 const PlatformSetting = require('./PlatformSetting');
 const SystemMetric = require('./SystemMetric');
 const SuperAdminLoginAttempt = require('./SuperAdminLoginAttempt')(sequelize, require('sequelize').DataTypes);
@@ -132,6 +134,18 @@ OrganizationUser.hasMany(Case, { foreignKey: 'created_by' });
 OrganizationUser.hasMany(Case, { foreignKey: 'assigned_to' });
 Case.hasMany(CaseHearing, { foreignKey: 'case_id' });
 CaseHearing.belongsTo(Case, { foreignKey: 'case_id' });
+CaseHearing.belongsTo(CaseHearing, { foreignKey: 'previous_hearing_id', as: 'PreviousHearing' });
+CaseHearing.hasMany(CaseHearing, { foreignKey: 'previous_hearing_id' });
+Case.hasMany(CaseAssignmentHistory, { foreignKey: 'case_id', as: 'AssignmentHistory' });
+CaseAssignmentHistory.belongsTo(Case, { foreignKey: 'case_id' });
+CaseAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'employee_id', as: 'Employee' });
+CaseAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'assigned_by', as: 'AssignedByUser' });
+OrganizationUser.hasMany(CaseAssignmentHistory, { foreignKey: 'employee_id' });
+OrganizationUser.hasMany(CaseAssignmentHistory, { foreignKey: 'assigned_by' });
+Case.hasMany(CaseJudgeHistory, { foreignKey: 'case_id', as: 'JudgeHistory' });
+CaseJudgeHistory.belongsTo(Case, { foreignKey: 'case_id' });
+CaseJudgeHistory.belongsTo(Judge, { foreignKey: 'judge_id', as: 'Judge' });
+Judge.hasMany(CaseJudgeHistory, { foreignKey: 'judge_id' });
 CaseHearing.belongsTo(Courtroom, { foreignKey: 'courtroom_id' });
 Courtroom.hasMany(CaseHearing, { foreignKey: 'courtroom_id' });
 CaseHearing.belongsTo(Judge, { foreignKey: 'judge_id' });
@@ -235,6 +249,8 @@ module.exports = {
   CaseTask,
   CasePermission,
   DocumentPermission,
+  CaseAssignmentHistory,
+  CaseJudgeHistory,
   PlatformSetting,
   SystemMetric,
   SuperAdminLoginAttempt,

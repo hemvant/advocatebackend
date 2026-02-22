@@ -34,6 +34,11 @@ const Judge = sequelize.define('Judge', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true
+  },
+  status: {
+    type: DataTypes.ENUM('active', 'transferred', 'retired'),
+    allowNull: false,
+    defaultValue: 'active'
   }
 }, {
   tableName: 'judges',
