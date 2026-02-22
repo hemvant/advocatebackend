@@ -31,7 +31,8 @@ async function extractText(filePath, mimeType) {
   const start = Date.now();
   const normalizedMime = (mimeType || '').toLowerCase().split(';')[0].trim();
 
-  const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(UPLOAD_BASE, filePath);
+  const normalizedInput = (filePath || '').replace(/\\/g, '/');
+  const absolutePath = path.isAbsolute(normalizedInput) ? normalizedInput : path.join(UPLOAD_BASE, normalizedInput);
   const safe = safePath(absolutePath);
   if (!safe || !fs.existsSync(safe)) {
     return { text: null, processingTimeMs: Date.now() - start, error: 'File not found or path invalid' };
@@ -39,14 +40,24 @@ async function extractText(filePath, mimeType) {
 
   try {
     if (IMAGE_MIMES.includes(normalizedMime)) {
-      const Tesseract = require('tesseract.js');
+      let Tesseract;
+      try {
+        Tesseract = require('tesseract.js');
+      } catch (e) {
+        return { text: null, processingTimeMs: Date.now() - start, error: 'OCR not available: install tesseract.js (npm install tesseract.js)' };
+      }
       const { data } = await Tesseract.recognize(safe, 'eng', { logger: () => {} });
       const text = sanitizeOcrText(data?.text);
       return { text, processingTimeMs: Date.now() - start };
     }
 
     if (normalizedMime === PDF_MIME) {
-      const pdfParse = require('pdf-parse');
+      let pdfParse;
+      try {
+        pdfParse = require('pdf-parse');
+      } catch (e) {
+        return { text: null, processingTimeMs: Date.now() - start, error: 'OCR not available: install pdf-parse (npm install pdf-parse)' };
+      }
       const buffer = fs.readFileSync(safe);
       const data = await pdfParse(buffer);
       const text = data?.text ? sanitizeOcrText(data.text) : null;

@@ -35,12 +35,16 @@ async function runOcrForDocument(documentId) {
     return;
   }
   await doc.update({ ocr_status: 'PROCESSING' });
-  const filePath = doc.file_path ? require('path').join(UPLOAD_BASE, doc.file_path) : null;
-  if (!filePath || !require('fs').existsSync(filePath)) {
+  const path = require('path');
+  const fs = require('fs');
+  const normalizedRelative = (doc.file_path || '').replace(/\\/g, '/');
+  const filePath = normalizedRelative ? path.join(UPLOAD_BASE, normalizedRelative) : null;
+  if (!filePath || !fs.existsSync(filePath)) {
+    logger.warn('[OCR] File not found: ' + (filePath || 'no path'));
     await doc.update({ ocr_status: 'FAILED', ocr_text: null });
     return;
   }
-  const relativePath = doc.file_path;
+  const relativePath = normalizedRelative;
   const start = Date.now();
   const result = await ocrService.extractText(relativePath, doc.mime_type);
   const elapsed = Date.now() - start;
