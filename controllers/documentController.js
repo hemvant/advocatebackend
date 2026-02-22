@@ -70,6 +70,7 @@ async function uploadDocument(req, res, next) {
       uploaded_by: user.id,
       document_name: docName,
       original_file_name: originalName,
+      file_name: originalName || docName,
       file_path: relativePath,
       file_size: file.size,
       mime_type: file.mimetype,
