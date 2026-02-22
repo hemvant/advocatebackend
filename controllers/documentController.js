@@ -10,7 +10,7 @@ const {
   DocumentPermission
 } = require('../models');
 const { Op } = require('sequelize');
-const { UPLOAD_BASE } = require('../config/uploads');
+const { UPLOAD_BASE, writeUploadToDisk } = require('../config/uploads');
 const auditService = require('../utils/auditService');
 const ocrQueue = require('../utils/ocrQueue');
 
@@ -61,7 +61,7 @@ async function uploadDocument(req, res, next) {
       await t.rollback();
       return res.status(404).json({ success: false, message: 'Case not found' });
     }
-    const relativePath = path.relative(UPLOAD_BASE, file.path);
+    const relativePath = writeUploadToDisk(file, user.organization_id, caseRecord.id);
     const docName = (document_name || file.originalname || 'Document').trim().slice(0, 255);
     const originalName = (file.originalname || '').slice(0, 255);
     const doc = await CaseDocument.create({
@@ -497,7 +497,7 @@ async function uploadNewVersion(req, res, next) {
       changed_by: user.id,
       change_summary: 'New file uploaded'
     }, { transaction: t });
-    const relativePath = path.relative(UPLOAD_BASE, file.path);
+    const relativePath = writeUploadToDisk(file, doc.organization_id, doc.case_id);
     doc.version_number += 1;
     doc.current_version = doc.version_number;
     doc.file_path = relativePath;

@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 
-const UPLOAD_BASE = path.join(process.cwd(), 'uploads');
+const { UPLOAD_BASE } = require('../config/uploads');
 const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const PDF_MIME = 'application/pdf';
 const MAX_OCR_LENGTH = 500000;

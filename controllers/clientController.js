@@ -1,6 +1,7 @@
 const { sequelize, Client, ClientOpponent, ClientTag, ClientTagMap, OrganizationUser } = require('../models');
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
+const { refreshSetupProgress } = require('../utils/setupService');
 
 function buildClientWhere(user) {
   const base = { organization_id: user.organization_id, is_deleted: false };
@@ -61,6 +62,7 @@ const createClient = async (req, res, next) => {
       await ClientTagMap.bulkCreate(ids.map((tag_id) => ({ client_id: client.id, tag_id })), { transaction: t });
     }
     await t.commit();
+    refreshSetupProgress(user.organization_id).catch(() => {});
     const created = await getClientWithAccess({ Client, ClientOpponent, ClientTag, OrganizationUser }, client.id, user);
     await auditService.log(req, {
       organization_id: user.organization_id,

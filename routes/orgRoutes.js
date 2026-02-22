@@ -8,6 +8,7 @@ const { orgLoginValidation, createOrgUserValidation, updateOrgUserValidation, as
 const orgAuthController = require('../controllers/orgAuthController');
 const organizationUserController = require('../controllers/organizationUserController');
 const moduleController = require('../controllers/moduleController');
+const setupStatusController = require('../controllers/setupStatusController');
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ router.post('/login', loginLimiter, sanitizeBody, orgLoginValidation, validate, 
 router.post('/logout', orgAuthController.logout);
 router.get('/me', organizationAuth, orgAuthController.me);
 router.get('/my-modules', organizationAuth, orgAuthController.myModules);
+router.get('/setup-status', organizationAuth, setupStatusController.getStatus);
 
 router.get('/employees', organizationAuth, requireOrgAdminOrEmployee, organizationUserController.list);
 router.post('/employees', organizationAuth, requireOrgAdmin, sanitizeBody, createOrgUserValidation, validate, organizationUserController.create);

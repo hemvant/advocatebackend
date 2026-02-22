@@ -34,8 +34,11 @@ const Subscription = require('./Subscription');
 const Invoice = require('./Invoice');
 const Package = require('./Package');
 const PackageModule = require('./PackageModule');
+const OrganizationSetupProgress = require('./OrganizationSetupProgress');
 
 Organization.hasMany(OrganizationUser, { foreignKey: 'organization_id' });
+Organization.hasOne(OrganizationSetupProgress, { foreignKey: 'organization_id' });
+OrganizationSetupProgress.belongsTo(Organization, { foreignKey: 'organization_id' });
 OrganizationUser.belongsTo(Organization, { foreignKey: 'organization_id' });
 
 Organization.belongsToMany(Module, {
@@ -258,5 +261,6 @@ module.exports = {
   Subscription,
   Invoice,
   Package,
-  PackageModule
+  PackageModule,
+  OrganizationSetupProgress
 };

@@ -1,6 +1,7 @@
 const { sequelize, Judge, Court, CourtBench, Case } = require('../models');
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
+const { refreshSetupProgress } = require('../utils/setupService');
 
 function canManage(user) {
   return user.role === 'ORG_ADMIN';
@@ -32,6 +33,7 @@ const addJudge = async (req, res, next) => {
       is_active: true
     }, { transaction: t });
     await t.commit();
+    refreshSetupProgress(req.user.organization_id).catch(() => {});
     const created = await Judge.findByPk(judge.id, {
       include: [
         { model: Court, as: 'Court', attributes: ['id', 'name'] },

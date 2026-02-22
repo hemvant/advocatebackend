@@ -1,4 +1,5 @@
 const { sequelize, Case, CaseHearing, CaseDocument, Client, OrganizationUser, Court, CourtType, CourtBench, Judge, Courtroom, CasePermission, CaseAssignmentHistory, CaseJudgeHistory } = require('../models');
+const { refreshSetupProgress } = require('../utils/setupService');
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
 const cache = require('../utils/cache');
@@ -85,6 +86,22 @@ const createCase = async (req, res, next) => {
   try {
     const user = req.user;
     const { client_id, case_title, case_number, court_id, bench_id, judge_id, courtroom_id, case_type, status, priority, filing_date, next_hearing_date, description, assigned_to } = req.body;
+
+    const [clientsCount, courtsCount] = await Promise.all([
+      Client.count({ where: { organization_id: user.organization_id, is_deleted: false } }),
+      Court.count({ where: { organization_id: user.organization_id } })
+    ]);
+    const missing = [];
+    if (clientsCount === 0) missing.push('clients');
+    if (courtsCount === 0) missing.push('courts');
+    if (missing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing Master Data',
+        missing,
+        message: 'Please create required master data before creating a case.'
+      });
+    }
 
     const client = await Client.findOne({
       where: { id: client_id, organization_id: user.organization_id, is_deleted: false }
@@ -196,6 +213,7 @@ const createCase = async (req, res, next) => {
       }, { transaction: t });
     }
     await t.commit();
+    refreshSetupProgress(user.organization_id).catch(() => {});
     const created = await getCaseWithAccess(caseRecord.id, user);
     await auditService.log(req, {
       organization_id: user.organization_id,

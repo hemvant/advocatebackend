@@ -3,8 +3,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 
-const UPLOAD_BASE = path.join(process.cwd(), 'uploads');
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+// Env-based config: set UPLOAD_DIR and/or MAX_FILE_SIZE_MB in .env
+const UPLOAD_BASE = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
+const MAX_FILE_SIZE_MB = Math.max(1, Math.min(100, parseInt(process.env.MAX_FILE_SIZE_MB, 10) || 10));
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 const ALLOWED_MIME = [
   'application/pdf',
   'image/jpeg',
@@ -24,26 +27,26 @@ function ensureDir(dirPath) {
   }
 }
 
-function documentStorage() {
-  return multer.diskStorage({
-    destination(req, file, cb) {
-      const orgId = req.user?.organization_id;
-      const caseId = req.body?.case_id;
-      if (!orgId || !caseId) {
-        return cb(new Error('Organization and case context required'));
-      }
-      const safeCaseId = String(caseId).replace(/\D/g, '') || '0';
-      const dir = path.join(UPLOAD_BASE, `organization_${orgId}`, `case_${safeCaseId}`);
-      ensureDir(dir);
-      cb(null, dir);
-    },
-    filename(req, file, cb) {
-      const ext = path.extname(file.originalname || '') || '';
-      const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '');
-      const name = `${crypto.randomUUID()}${safeExt}`;
-      cb(null, name);
-    }
-  });
+// Ensure base upload directory exists when module loads (fixes "upload failed" when dir missing)
+ensureDir(UPLOAD_BASE);
+
+/**
+ * Write an uploaded file (from memory buffer) to org/case folder. Call from controller after multer.
+ * @param {object} file - req.file from multer (memory: file.buffer, file.originalname, file.mimetype)
+ * @param {number} organizationId
+ * @param {number} caseId
+ * @returns {string} relative path from UPLOAD_BASE (for DB)
+ */
+function writeUploadToDisk(file, organizationId, caseId) {
+  const safeCaseId = String(caseId).replace(/\D/g, '') || '0';
+  const dir = path.join(UPLOAD_BASE, `organization_${organizationId}`, `case_${safeCaseId}`);
+  ensureDir(dir);
+  const ext = path.extname(file.originalname || '') || '';
+  const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '');
+  const filename = `${crypto.randomUUID()}${safeExt}`;
+  const fullPath = path.join(dir, filename);
+  fs.writeFileSync(fullPath, file.buffer);
+  return path.relative(UPLOAD_BASE, fullPath);
 }
 
 function fileFilter(req, file, cb) {
@@ -57,14 +60,17 @@ function fileFilter(req, file, cb) {
   cb(null, true);
 }
 
+// Use memory storage so we don't need req.body/req.user in multer (avoids "Organization and case context required")
+const memoryStorage = multer.memoryStorage();
+
 const uploadDocument = multer({
-  storage: documentStorage(),
+  storage: memoryStorage,
   fileFilter,
   limits: { fileSize: MAX_FILE_SIZE }
 });
 
 const uploadNewVersion = multer({
-  storage: documentStorage(),
+  storage: memoryStorage,
   fileFilter,
   limits: { fileSize: MAX_FILE_SIZE }
 });
@@ -72,8 +78,10 @@ const uploadNewVersion = multer({
 module.exports = {
   UPLOAD_BASE,
   MAX_FILE_SIZE,
+  MAX_FILE_SIZE_MB,
   ALLOWED_MIME,
   ensureDir,
+  writeUploadToDisk,
   uploadDocument,
   uploadNewVersion
 };
