@@ -11,8 +11,13 @@ const requestLogger = require('./middleware/requestLogger');
 const { testConnection } = require('./utils/db');
 const { initReminderCron } = require('./utils/reminderJob');
 const logger = require('./utils/logger');
+const { UPLOAD_BASE, ensureDir } = require('./config/uploads');
 
 require('./models');
+
+// Ensure upload folder exists before server accepts requests (document uploads)
+ensureDir(UPLOAD_BASE);
+logger.info('Upload directory ready: ' + UPLOAD_BASE);
 
 const app = express();
 app.set('trust proxy', 1);
