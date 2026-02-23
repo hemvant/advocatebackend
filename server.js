@@ -48,9 +48,12 @@ app.use('/api', routes);
 
 app.use(errorHandler);
 
+const { setProcessStartTime } = require('./utils/serverStartTime');
+
 testConnection().then(function() {
   initReminderCron();
   app.listen(config.port, function() {
+    setProcessStartTime();
     logger.info('Server running on port ' + config.port);
   });
 }).catch(function() { process.exit(1); });

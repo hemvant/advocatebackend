@@ -36,8 +36,6 @@ const login = async (req, res, next) => {
       await admin.update(updates);
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
-    console.log('Model:', SuperAdminLoginAttempt);
-console.log('Create fn:', typeof SuperAdminLoginAttempt?.create);
     await SuperAdminLoginAttempt.create({ email, ip_address: ip, success: true });
     await admin.update({ failed_login_count: 0, locked_until: null, last_login_ip: ip });
     const token = jwt.sign(
