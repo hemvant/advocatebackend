@@ -1,7 +1,7 @@
 const express = require('express');
 const billingController = require('../controllers/billingController');
 const { createOrderValidation, verifyPaymentValidation } = require('../utils/validators');
-const { validate } = require('../middleware/validate');
+const validate = require('../middleware/validate');
 const sanitizeBody = require('../middleware/sanitize').sanitizeBody;
 
 const router = express.Router();
