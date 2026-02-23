@@ -329,6 +329,17 @@ const resetEmployeePasswordValidation = [
   body('new_password').notEmpty().withMessage('New password is required').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
 ];
 
+const createOrderValidation = [
+  body('package_id').isInt({ min: 1 }).withMessage('package_id is required'),
+  body('billing_cycle').isIn(['MONTHLY', 'ANNUAL']).withMessage('billing_cycle must be MONTHLY or ANNUAL')
+];
+
+const verifyPaymentValidation = [
+  body('order_id').trim().notEmpty().withMessage('order_id is required'),
+  body('payment_id').trim().notEmpty().withMessage('payment_id is required'),
+  body('signature').optional().trim()
+];
+
 module.exports = {
   registerValidation,
   loginValidation,
@@ -344,6 +355,8 @@ module.exports = {
   assignSubscriptionValidation,
   createInvoiceValidation,
   markInvoicePaidValidation,
+  createOrderValidation,
+  verifyPaymentValidation,
   createOrgUserValidation,
   updateOrgUserValidation,
   assignOrgModulesValidation,

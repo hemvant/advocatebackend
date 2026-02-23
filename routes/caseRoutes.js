@@ -22,6 +22,7 @@ router.post('/', sanitizeBody, createCaseValidation, validate, caseController.cr
 router.get('/:caseId/tasks', taskController.listTasksByCase);
 router.get('/:id/permissions', caseController.getCasePermissions);
 router.put('/:id/permissions', sanitizeBody, setCasePermissionsValidation, validate, caseController.setCasePermissions);
+router.get('/:id/history', caseController.getCaseHistory);
 router.get('/:id', caseController.getCaseById);
 router.put('/:caseId/judge', sanitizeBody, assignJudgeToCaseValidation, validate, judgeController.assignJudgeToCase);
 router.put('/:id', checkCasePermission('EDIT'), sanitizeBody, updateCaseValidation, validate, caseController.updateCase);

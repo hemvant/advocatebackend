@@ -1,6 +1,7 @@
-const { CaseTask, Case, OrganizationUser } = require('../models');
+const { sequelize, CaseTask, Case, OrganizationUser, TaskAssignmentHistory, CaseActivityLog } = require('../models');
 const { Op } = require('sequelize');
 const cache = require('../utils/cache');
+const { logCaseActivity } = require('../utils/caseActivityLogger');
 
 function buildTaskWhere(user) {
   const base = { organization_id: user.organization_id };
@@ -15,36 +16,77 @@ async function getCaseForTask(caseId, user) {
 }
 
 const createTask = async (req, res, next) => {
+  const t = await sequelize.transaction();
   try {
     const user = req.user;
     const caseRecord = await getCaseForTask(req.body.case_id, user);
-    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found or access denied' });
+    if (!caseRecord) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: 'Case not found or access denied' });
+    }
     const { case_id, assigned_to, title, description, priority, due_date } = req.body;
     const assigneeId = assigned_to ? parseInt(assigned_to, 10) : null;
+    let assigneeName = null;
     if (assigneeId) {
-      const emp = await OrganizationUser.findOne({ where: { id: assigneeId, organization_id: user.organization_id }, attributes: ['id'] });
-      if (!emp) return res.status(400).json({ success: false, message: 'Invalid assignee' });
+      const emp = await OrganizationUser.findOne({ where: { id: assigneeId, organization_id: user.organization_id }, attributes: ['id', 'name'] });
+      if (!emp) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Invalid assignee' });
+      }
+      assigneeName = emp.name;
     }
     const task = await CaseTask.create({
       organization_id: user.organization_id,
       case_id: caseRecord.id,
       assigned_to: assigneeId,
+      assigned_by: assigneeId ? user.id : null,
       created_by: user.id,
       title: (title || '').trim(),
       description: (description || '').trim() || null,
       priority: priority || 'MEDIUM',
       status: 'PENDING',
       due_date: due_date || null
+    }, { transaction: t });
+    if (assigneeId) {
+      await TaskAssignmentHistory.create({
+        organization_id: user.organization_id,
+        task_id: task.id,
+        previous_assigned_to: null,
+        new_assigned_to: assigneeId,
+        changed_by: user.id,
+        change_reason: null
+      }, { transaction: t });
+    }
+    await t.commit();
+    await logCaseActivity({
+      organization_id: user.organization_id,
+      case_id: caseRecord.id,
+      task_id: task.id,
+      user_id: user.id,
+      activity_type: 'TASK_CREATED',
+      activity_summary: `Task '${(title || '').trim()}' created.`
     });
+    if (assigneeId && assigneeName) {
+      await logCaseActivity({
+        organization_id: user.organization_id,
+        case_id: caseRecord.id,
+        task_id: task.id,
+        user_id: user.id,
+        activity_type: 'TASK_ASSIGNED',
+        activity_summary: `Task '${(title || '').trim()}' assigned to ${assigneeName}.`
+      });
+    }
     const created = await CaseTask.findByPk(task.id, {
       include: [
         { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'] },
         { model: OrganizationUser, as: 'Assignee', attributes: ['id', 'name', 'email'] },
+        { model: OrganizationUser, as: 'AssignedByUser', attributes: ['id', 'name'] },
         { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] }
       ]
     });
     res.status(201).json({ success: true, data: created });
   } catch (err) {
+    await t.rollback();
     next(err);
   }
 };
@@ -53,9 +95,13 @@ const updateTask = async (req, res, next) => {
   try {
     const user = req.user;
     const where = buildTaskWhere(user);
-    const task = await CaseTask.findOne({ where: { id: req.params.id, ...where } });
+    const task = await CaseTask.findOne({
+      where: { id: req.params.id, ...where },
+      include: [{ model: Case, as: 'Case', attributes: ['id', 'case_number'] }]
+    });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     const { title, description, priority, status, due_date } = req.body;
+    const prevStatus = task.status;
     if (title !== undefined) task.title = title.trim();
     if (description !== undefined) task.description = description ? description.trim() : null;
     if (priority !== undefined) task.priority = priority;
@@ -64,10 +110,24 @@ const updateTask = async (req, res, next) => {
     if (status === 'COMPLETED' && task.completed_at == null) task.completed_at = new Date();
     if (status !== 'COMPLETED') task.completed_at = null;
     await task.save();
+    if (status !== undefined && status !== prevStatus) {
+      const summary = status === 'COMPLETED'
+        ? `Task '${task.title}' marked as Completed by ${user.name || 'User'}.`
+        : `Task status changed to ${status}.`;
+      await logCaseActivity({
+        organization_id: user.organization_id,
+        case_id: task.case_id,
+        task_id: task.id,
+        user_id: user.id,
+        activity_type: status === 'COMPLETED' ? 'TASK_COMPLETED' : 'STATUS_CHANGED',
+        activity_summary: summary
+      });
+    }
     const updated = await CaseTask.findByPk(task.id, {
       include: [
         { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'] },
         { model: OrganizationUser, as: 'Assignee', attributes: ['id', 'name', 'email'] },
+        { model: OrganizationUser, as: 'AssignedByUser', attributes: ['id', 'name'] },
         { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] }
       ]
     });
@@ -86,6 +146,14 @@ const markComplete = async (req, res, next) => {
     task.status = 'COMPLETED';
     task.completed_at = new Date();
     await task.save();
+    await logCaseActivity({
+      organization_id: user.organization_id,
+      case_id: task.case_id,
+      task_id: task.id,
+      user_id: user.id,
+      activity_type: 'TASK_COMPLETED',
+      activity_summary: `Task '${task.title}' marked as Completed by ${user.name || 'User'}.`
+    });
     const updated = await CaseTask.findByPk(task.id, {
       include: [
         { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'] },
@@ -106,12 +174,40 @@ const reassignTask = async (req, res, next) => {
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     const { assigned_to } = req.body;
     const assigneeId = assigned_to ? parseInt(assigned_to, 10) : null;
+    let newName = null;
     if (assigneeId) {
-      const emp = await OrganizationUser.findOne({ where: { id: assigneeId, organization_id: user.organization_id }, attributes: ['id'] });
+      const emp = await OrganizationUser.findOne({ where: { id: assigneeId, organization_id: user.organization_id }, attributes: ['id', 'name'] });
       if (!emp) return res.status(400).json({ success: false, message: 'Invalid assignee' });
+      newName = emp.name;
     }
+    const prevAssigneeId = task.assigned_to;
     task.assigned_to = assigneeId;
+    task.assigned_by = assigneeId ? user.id : task.assigned_by;
     await task.save();
+    if (assigneeId) {
+      await TaskAssignmentHistory.create({
+        organization_id: user.organization_id,
+        task_id: task.id,
+        previous_assigned_to: prevAssigneeId,
+        new_assigned_to: assigneeId,
+        changed_by: user.id,
+        change_reason: null
+      });
+    }
+    const prevName = prevAssigneeId ? (await OrganizationUser.findByPk(prevAssigneeId, { attributes: ['name'], raw: true }))?.name : null;
+    const summary = prevName && newName
+      ? `Task '${task.title}' reassigned from ${prevName} to ${newName}.`
+      : newName
+        ? `Task '${task.title}' assigned to ${newName}.`
+        : `Task '${task.title}' unassigned from ${prevName || 'previous assignee'}.`;
+    await logCaseActivity({
+      organization_id: user.organization_id,
+      case_id: task.case_id,
+      task_id: task.id,
+      user_id: user.id,
+      activity_type: 'TASK_REASSIGNED',
+      activity_summary: summary
+    });
     const updated = await CaseTask.findByPk(task.id, {
       include: [
         { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'] },
@@ -220,11 +316,55 @@ const getTaskById = async (req, res, next) => {
       include: [
         { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'] },
         { model: OrganizationUser, as: 'Assignee', attributes: ['id', 'name', 'email'] },
+        { model: OrganizationUser, as: 'AssignedByUser', attributes: ['id', 'name'] },
         { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name'] }
       ]
     });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     res.json({ success: true, data: task });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getTaskHistory = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const where = buildTaskWhere(user);
+    const task = await CaseTask.findOne({
+      where: { id: req.params.id, ...where },
+      attributes: ['id', 'case_id', 'organization_id', 'title']
+    });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+    const activityWhere = { organization_id: user.organization_id, task_id: task.id };
+    if (user.role !== 'ORG_ADMIN') activityWhere.user_id = user.id;
+    if (req.query.user_id) activityWhere.user_id = req.query.user_id;
+    if (req.query.activity_type) activityWhere.activity_type = req.query.activity_type;
+    if (req.query.from_date || req.query.to_date) {
+      activityWhere.created_at = {};
+      if (req.query.from_date) activityWhere.created_at[Op.gte] = new Date(req.query.from_date);
+      if (req.query.to_date) activityWhere.created_at[Op.lte] = new Date(req.query.to_date);
+    }
+    const [assignmentHistory, activityLogs] = await Promise.all([
+      TaskAssignmentHistory.findAll({
+        where: { organization_id: user.organization_id, task_id: task.id },
+        include: [
+          { model: OrganizationUser, as: 'PreviousAssignee', attributes: ['id', 'name'] },
+          { model: OrganizationUser, as: 'NewAssignee', attributes: ['id', 'name'] },
+          { model: OrganizationUser, as: 'ChangedByUser', attributes: ['id', 'name'] }
+        ],
+        order: [['created_at', 'DESC']]
+      }),
+      CaseActivityLog.findAll({
+        where: activityWhere,
+        include: [{ model: OrganizationUser, as: 'User', attributes: ['id', 'name'] }],
+        order: [['created_at', 'DESC']]
+      })
+    ]);
+    res.json({
+      success: true,
+      data: { assignmentHistory, activityTimeline: activityLogs }
+    });
   } catch (err) {
     next(err);
   }
@@ -238,5 +378,6 @@ module.exports = {
   listTasks,
   listTasksByCase,
   getTaskDashboard,
-  getTaskById
+  getTaskById,
+  getTaskHistory
 };

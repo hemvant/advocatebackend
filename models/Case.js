@@ -27,6 +27,12 @@ const Case = sequelize.define('Case', {
     allowNull: true,
     references: { model: 'organization_users', key: 'id' }
   },
+  assigned_at: { type: DataTypes.DATE, allowNull: true },
+  assigned_by: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'organization_users', key: 'id' }
+  },
   case_title: {
     type: DataTypes.STRING(255),
     allowNull: false

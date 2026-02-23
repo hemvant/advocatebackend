@@ -25,7 +25,10 @@ const CaseTask = require('./CaseTask');
 const CasePermission = require('./CasePermission');
 const DocumentPermission = require('./DocumentPermission');
 const CaseAssignmentHistory = require('./CaseAssignmentHistory');
+const CaseAssignmentChange = require('./CaseAssignmentChange');
 const CaseJudgeHistory = require('./CaseJudgeHistory');
+const TaskAssignmentHistory = require('./TaskAssignmentHistory');
+const CaseActivityLog = require('./CaseActivityLog');
 const PlatformSetting = require('./PlatformSetting');
 const SystemMetric = require('./SystemMetric');
 const SuperAdminLoginAttempt = require('./SuperAdminLoginAttempt')(sequelize, require('sequelize').DataTypes);
@@ -133,8 +136,10 @@ Case.belongsTo(Client, { foreignKey: 'client_id' });
 Client.hasMany(Case, { foreignKey: 'client_id' });
 Case.belongsTo(OrganizationUser, { foreignKey: 'created_by', as: 'Creator' });
 Case.belongsTo(OrganizationUser, { foreignKey: 'assigned_to', as: 'Assignee' });
+Case.belongsTo(OrganizationUser, { foreignKey: 'assigned_by', as: 'AssignedByUser' });
 OrganizationUser.hasMany(Case, { foreignKey: 'created_by' });
 OrganizationUser.hasMany(Case, { foreignKey: 'assigned_to' });
+OrganizationUser.hasMany(Case, { foreignKey: 'assigned_by' });
 Case.hasMany(CaseHearing, { foreignKey: 'case_id' });
 CaseHearing.belongsTo(Case, { foreignKey: 'case_id' });
 CaseHearing.belongsTo(CaseHearing, { foreignKey: 'previous_hearing_id', as: 'PreviousHearing' });
@@ -145,6 +150,16 @@ CaseAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'employee_id', a
 CaseAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'assigned_by', as: 'AssignedByUser' });
 OrganizationUser.hasMany(CaseAssignmentHistory, { foreignKey: 'employee_id' });
 OrganizationUser.hasMany(CaseAssignmentHistory, { foreignKey: 'assigned_by' });
+Case.hasMany(CaseAssignmentChange, { foreignKey: 'case_id', as: 'AssignmentChanges' });
+CaseAssignmentChange.belongsTo(Case, { foreignKey: 'case_id' });
+CaseAssignmentChange.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(CaseAssignmentChange, { foreignKey: 'organization_id' });
+CaseAssignmentChange.belongsTo(OrganizationUser, { foreignKey: 'previous_assigned_to', as: 'PreviousAssignee' });
+CaseAssignmentChange.belongsTo(OrganizationUser, { foreignKey: 'new_assigned_to', as: 'NewAssignee' });
+CaseAssignmentChange.belongsTo(OrganizationUser, { foreignKey: 'changed_by', as: 'ChangedByUser' });
+OrganizationUser.hasMany(CaseAssignmentChange, { foreignKey: 'previous_assigned_to' });
+OrganizationUser.hasMany(CaseAssignmentChange, { foreignKey: 'new_assigned_to' });
+OrganizationUser.hasMany(CaseAssignmentChange, { foreignKey: 'changed_by' });
 Case.hasMany(CaseJudgeHistory, { foreignKey: 'case_id', as: 'JudgeHistory' });
 CaseJudgeHistory.belongsTo(Case, { foreignKey: 'case_id' });
 CaseJudgeHistory.belongsTo(Judge, { foreignKey: 'judge_id', as: 'Judge' });
@@ -176,9 +191,29 @@ OrganizationUser.hasMany(DocumentPermission, { foreignKey: 'user_id' });
 CaseTask.belongsTo(Organization, { foreignKey: 'organization_id' });
 Organization.hasMany(CaseTask, { foreignKey: 'organization_id' });
 CaseTask.belongsTo(OrganizationUser, { foreignKey: 'assigned_to', as: 'Assignee' });
+CaseTask.belongsTo(OrganizationUser, { foreignKey: 'assigned_by', as: 'AssignedByUser' });
 CaseTask.belongsTo(OrganizationUser, { foreignKey: 'created_by', as: 'Creator' });
 OrganizationUser.hasMany(CaseTask, { foreignKey: 'assigned_to' });
+OrganizationUser.hasMany(CaseTask, { foreignKey: 'assigned_by' });
 OrganizationUser.hasMany(CaseTask, { foreignKey: 'created_by' });
+CaseTask.hasMany(TaskAssignmentHistory, { foreignKey: 'task_id', as: 'AssignmentHistory' });
+TaskAssignmentHistory.belongsTo(CaseTask, { foreignKey: 'task_id' });
+TaskAssignmentHistory.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(TaskAssignmentHistory, { foreignKey: 'organization_id' });
+TaskAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'previous_assigned_to', as: 'PreviousAssignee' });
+TaskAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'new_assigned_to', as: 'NewAssignee' });
+TaskAssignmentHistory.belongsTo(OrganizationUser, { foreignKey: 'changed_by', as: 'ChangedByUser' });
+OrganizationUser.hasMany(TaskAssignmentHistory, { foreignKey: 'previous_assigned_to' });
+OrganizationUser.hasMany(TaskAssignmentHistory, { foreignKey: 'new_assigned_to' });
+OrganizationUser.hasMany(TaskAssignmentHistory, { foreignKey: 'changed_by' });
+Case.hasMany(CaseActivityLog, { foreignKey: 'case_id', as: 'ActivityLogs' });
+CaseActivityLog.belongsTo(Case, { foreignKey: 'case_id' });
+CaseActivityLog.belongsTo(CaseTask, { foreignKey: 'task_id' });
+CaseTask.hasMany(CaseActivityLog, { foreignKey: 'task_id' });
+CaseActivityLog.belongsTo(Organization, { foreignKey: 'organization_id' });
+CaseActivityLog.belongsTo(OrganizationUser, { foreignKey: 'user_id', as: 'User' });
+Organization.hasMany(CaseActivityLog, { foreignKey: 'organization_id' });
+OrganizationUser.hasMany(CaseActivityLog, { foreignKey: 'user_id' });
 CaseDocument.belongsTo(Organization, { foreignKey: 'organization_id' });
 Organization.hasMany(CaseDocument, { foreignKey: 'organization_id' });
 CaseDocument.belongsTo(OrganizationUser, { foreignKey: 'uploaded_by', as: 'Uploader' });
@@ -253,7 +288,10 @@ module.exports = {
   CasePermission,
   DocumentPermission,
   CaseAssignmentHistory,
+  CaseAssignmentChange,
   CaseJudgeHistory,
+  TaskAssignmentHistory,
+  CaseActivityLog,
   PlatformSetting,
   SystemMetric,
   SuperAdminLoginAttempt,

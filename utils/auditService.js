@@ -27,7 +27,7 @@ async function log(req, params) {
     action_type,
     oldData: old_value ?? null,
     newData: new_value ?? null,
-    action_summary_override: action_summary,
+    action_summary,
     entity_label,
     req
   });

@@ -13,7 +13,10 @@ const Invoice = sequelize.define('Invoice', {
   period_start: { type: DataTypes.DATEONLY, allowNull: true },
   period_end: { type: DataTypes.DATEONLY, allowNull: true },
   due_date: { type: DataTypes.DATEONLY, allowNull: true },
-  paid_at: { type: DataTypes.DATE, allowNull: true }
+  paid_at: { type: DataTypes.DATE, allowNull: true },
+  gateway_order_id: { type: DataTypes.STRING(100), allowNull: true },
+  payment_id: { type: DataTypes.STRING(100), allowNull: true },
+  transaction_id: { type: DataTypes.STRING(100), allowNull: true }
 }, {
   tableName: 'invoices',
   timestamps: true,

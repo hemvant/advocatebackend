@@ -9,6 +9,7 @@ const router = express.Router();
 router.get('/dashboard', taskController.getTaskDashboard);
 router.get('/', taskController.listTasks);
 router.post('/', sanitizeBody, createTaskValidation, validate, taskController.createTask);
+router.get('/:id/history', taskController.getTaskHistory);
 router.get('/:id', taskController.getTaskById);
 router.put('/:id', sanitizeBody, updateTaskValidation, validate, taskController.updateTask);
 router.post('/:id/complete', taskController.markComplete);

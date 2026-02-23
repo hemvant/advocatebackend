@@ -1,9 +1,10 @@
-const { sequelize, Case, CaseHearing, CaseDocument, Client, OrganizationUser, Court, CourtType, CourtBench, Judge, Courtroom, CasePermission, CaseAssignmentHistory, CaseJudgeHistory } = require('../models');
+const { sequelize, Case, CaseHearing, CaseDocument, Client, OrganizationUser, Court, CourtType, CourtBench, Judge, Courtroom, CasePermission, CaseAssignmentHistory, CaseAssignmentChange, CaseJudgeHistory, CaseActivityLog } = require('../models');
 const { refreshSetupProgress } = require('../utils/setupService');
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
 const cache = require('../utils/cache');
 const { cursorByIdDesc, cursorFromRow } = require('../utils/pagination');
+const { logCaseActivity } = require('../utils/caseActivityLogger');
 
 async function buildCaseWhere(user) {
   const base = { organization_id: user.organization_id, is_deleted: false };
@@ -39,6 +40,7 @@ async function getCaseWithAccess(caseId, user) {
       { model: Client, as: 'Client', attributes: ['id', 'name', 'email', 'phone'] },
       { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name', 'email'] },
       { model: OrganizationUser, as: 'Assignee', attributes: ['id', 'name', 'email'] },
+      { model: OrganizationUser, as: 'AssignedByUser', attributes: ['id', 'name'] },
       { model: Court, as: 'Court', attributes: ['id', 'name'], include: [{ model: CourtType, as: 'CourtType', attributes: ['id', 'name'] }] },
       { model: CourtBench, as: 'Bench', attributes: ['id', 'name'] },
       { model: Judge, as: 'Judge', attributes: ['id', 'name', 'designation'] },
@@ -156,11 +158,14 @@ const createCase = async (req, res, next) => {
       }
     }
 
+    const now = new Date();
     const caseRecord = await Case.create({
       organization_id: user.organization_id,
       client_id,
       created_by: user.id,
       assigned_to: assigned_to || null,
+      assigned_at: assigned_to ? now : null,
+      assigned_by: assigned_to ? user.id : null,
       case_title: caseTitleTrim,
       case_number: finalCaseNumber,
       court_id: finalCourtId,
@@ -175,10 +180,11 @@ const createCase = async (req, res, next) => {
       description: description || null,
       is_deleted: false
     }, { transaction: t });
+    let assigneeName = null;
     if (assigned_to) {
       const emp = await OrganizationUser.findOne({
         where: { id: assigned_to, organization_id: user.organization_id },
-        attributes: ['id', 'status']
+        attributes: ['id', 'name', 'status']
       });
       if (!emp) {
         await t.rollback();
@@ -188,12 +194,21 @@ const createCase = async (req, res, next) => {
         await t.rollback();
         return res.status(400).json({ success: false, message: 'Cannot assign case to inactive or left employee' });
       }
+      assigneeName = emp.name;
       await CaseAssignmentHistory.create({
         case_id: caseRecord.id,
         employee_id: assigned_to,
-        assigned_at: new Date(),
+        assigned_at: now,
         assigned_by: user.id,
         reason: null
+      }, { transaction: t });
+      await CaseAssignmentChange.create({
+        organization_id: user.organization_id,
+        case_id: caseRecord.id,
+        previous_assigned_to: null,
+        new_assigned_to: assigned_to,
+        changed_by: user.id,
+        change_reason: null
       }, { transaction: t });
     }
     if (finalJudgeId) {
@@ -213,6 +228,22 @@ const createCase = async (req, res, next) => {
       }, { transaction: t });
     }
     await t.commit();
+    await logCaseActivity({
+      organization_id: user.organization_id,
+      case_id: caseRecord.id,
+      user_id: user.id,
+      activity_type: 'CASE_CREATED',
+      activity_summary: `Case ${finalCaseNumber} created by ${user.name || 'User'}.`
+    });
+    if (assigned_to && assigneeName) {
+      await logCaseActivity({
+        organization_id: user.organization_id,
+        case_id: caseRecord.id,
+        user_id: user.id,
+        activity_type: 'CASE_ASSIGNED',
+        activity_summary: `Case ${finalCaseNumber} assigned to ${assigneeName} by ${user.name || 'Admin'}.`
+      });
+    }
     refreshSetupProgress(user.organization_id).catch(() => {});
     const created = await getCaseWithAccess(caseRecord.id, user);
     await auditService.log(req, {
@@ -277,13 +308,14 @@ const updateCase = async (req, res, next) => {
     if (description !== undefined) updates.description = description || null;
     if (case_lifecycle_status !== undefined) updates.case_lifecycle_status = case_lifecycle_status;
 
+    let reassignActivitySummary = null;
     if (assigned_to !== undefined && user.role === 'ORG_ADMIN') {
       const newAssigneeId = assigned_to || null;
       if (newAssigneeId !== caseRecord.assigned_to) {
         if (newAssigneeId) {
           const emp = await OrganizationUser.findOne({
             where: { id: newAssigneeId, organization_id: user.organization_id },
-            attributes: ['id', 'status']
+            attributes: ['id', 'name', 'status']
           });
           if (!emp) {
             await t.rollback();
@@ -294,6 +326,15 @@ const updateCase = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Cannot assign case to inactive or left employee' });
           }
         }
+        const prevName = caseRecord.Assignee ? caseRecord.Assignee.name : null;
+        const newName = newAssigneeId ? (await OrganizationUser.findByPk(newAssigneeId, { attributes: ['name'], raw: true }))?.name : null;
+        reassignActivitySummary = prevName && newName
+          ? `Case reassigned from ${prevName} to ${newName}.`
+          : newName
+            ? `Case ${caseRecord.case_number} assigned to ${newName} by ${user.name || 'Admin'}.`
+            : prevName
+              ? `Case unassigned from ${prevName}.`
+              : null;
         const currentOpen = await CaseAssignmentHistory.findOne({
           where: { case_id: caseRecord.id, unassigned_at: null },
           order: [['assigned_at', 'DESC']],
@@ -303,15 +344,26 @@ const updateCase = async (req, res, next) => {
           await currentOpen.update({ unassigned_at: new Date(), reason: newAssigneeId ? 'reassigned' : 'unassigned' }, { transaction: t });
         }
         if (newAssigneeId) {
+          const now = new Date();
           await CaseAssignmentHistory.create({
             case_id: caseRecord.id,
             employee_id: newAssigneeId,
-            assigned_at: new Date(),
+            assigned_at: now,
             assigned_by: user.id,
             reason: null
           }, { transaction: t });
+          await CaseAssignmentChange.create({
+            organization_id: user.organization_id,
+            case_id: caseRecord.id,
+            previous_assigned_to: caseRecord.assigned_to,
+            new_assigned_to: newAssigneeId,
+            changed_by: user.id,
+            change_reason: null
+          }, { transaction: t });
         }
         updates.assigned_to = newAssigneeId;
+        updates.assigned_at = newAssigneeId ? new Date() : null;
+        updates.assigned_by = newAssigneeId ? user.id : null;
       }
     }
 
@@ -355,6 +407,15 @@ const updateCase = async (req, res, next) => {
     const oldSnapshot = caseRecord.toJSON();
     await caseRecord.update(updates, { transaction: t });
     await t.commit();
+    if (reassignActivitySummary) {
+      await logCaseActivity({
+        organization_id: user.organization_id,
+        case_id: caseRecord.id,
+        user_id: user.id,
+        activity_type: 'CASE_REASSIGNED',
+        activity_summary: reassignActivitySummary
+      });
+    }
     const updated = await getCaseWithAccess(caseRecord.id, user);
     await auditService.log(req, {
       organization_id: user.organization_id,
@@ -400,6 +461,51 @@ const getCaseById = async (req, res, next) => {
     const caseRecord = await getCaseWithAccess(req.params.id, user);
     if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
     res.json({ success: true, data: caseRecord });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getCaseHistory = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const caseRecord = await getCaseWithAccess(req.params.id, user);
+    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
+    const where = { organization_id: user.organization_id, case_id: caseRecord.id };
+    const activityWhere = { ...where };
+    if (user.role !== 'ORG_ADMIN') {
+      activityWhere.user_id = user.id;
+    }
+    if (req.query.user_id) activityWhere.user_id = req.query.user_id;
+    if (req.query.activity_type) activityWhere.activity_type = req.query.activity_type;
+    if (req.query.from_date || req.query.to_date) {
+      activityWhere.created_at = {};
+      if (req.query.from_date) activityWhere.created_at[Op.gte] = new Date(req.query.from_date);
+      if (req.query.to_date) activityWhere.created_at[Op.lte] = new Date(req.query.to_date);
+    }
+    const [assignmentChanges, activityLogs] = await Promise.all([
+      CaseAssignmentChange.findAll({
+        where,
+        include: [
+          { model: OrganizationUser, as: 'PreviousAssignee', attributes: ['id', 'name'] },
+          { model: OrganizationUser, as: 'NewAssignee', attributes: ['id', 'name'] },
+          { model: OrganizationUser, as: 'ChangedByUser', attributes: ['id', 'name'] }
+        ],
+        order: [['created_at', 'DESC']]
+      }),
+      CaseActivityLog.findAll({
+        where: activityWhere,
+        include: [{ model: OrganizationUser, as: 'User', attributes: ['id', 'name'] }],
+        order: [['created_at', 'DESC']]
+      })
+    ]);
+    res.json({
+      success: true,
+      data: {
+        assignmentHistory: assignmentChanges,
+        activityTimeline: activityLogs
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -709,6 +815,7 @@ module.exports = {
   updateCase,
   softDeleteCase,
   getCaseById,
+  getCaseHistory,
   listCases,
   addHearing,
   removeHearing,
