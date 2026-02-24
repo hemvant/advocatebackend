@@ -213,7 +213,9 @@ const updateCaseValidation = [
   body('filing_date').optional().isDate(),
   body('next_hearing_date').optional().isDate(),
   body('description').optional().trim(),
-  body('assigned_to').optional().isInt({ min: 1 })
+  body('assigned_to').optional().isInt({ min: 1 }),
+  body('cnr_number').optional().trim().isLength({ max: 100 }),
+  body('auto_sync_enabled').optional().isBoolean()
 ];
 
 const addHearingValidation = [
@@ -340,6 +342,32 @@ const verifyPaymentValidation = [
   body('signature').optional().trim()
 ];
 
+const createAdvocateInvoiceValidation = [
+  body('professional_fee').optional().isFloat({ min: 0 }),
+  body('filing_fee').optional().isFloat({ min: 0 }),
+  body('clerk_fee').optional().isFloat({ min: 0 }),
+  body('court_fee').optional().isFloat({ min: 0 }),
+  body('misc_expense').optional().isFloat({ min: 0 }),
+  body('advance_received').optional().isFloat({ min: 0 }),
+  body('gst_enabled').optional().isBoolean(),
+  body('gst_percentage').optional().isFloat({ min: 0, max: 100 }),
+  body('case_id').optional().isInt({ min: 1 }),
+  body('due_date').optional().isDate()
+];
+
+const updateAdvocateInvoiceValidation = [
+  body('professional_fee').optional().isFloat({ min: 0 }),
+  body('filing_fee').optional().isFloat({ min: 0 }),
+  body('clerk_fee').optional().isFloat({ min: 0 }),
+  body('court_fee').optional().isFloat({ min: 0 }),
+  body('misc_expense').optional().isFloat({ min: 0 }),
+  body('advance_received').optional().isFloat({ min: 0 }),
+  body('gst_enabled').optional().isBoolean(),
+  body('gst_percentage').optional().isFloat({ min: 0, max: 100 }),
+  body('case_id').optional().isInt({ min: 1 }),
+  body('due_date').optional().isDate()
+];
+
 module.exports = {
   registerValidation,
   loginValidation,
@@ -357,6 +385,8 @@ module.exports = {
   markInvoicePaidValidation,
   createOrderValidation,
   verifyPaymentValidation,
+  createAdvocateInvoiceValidation,
+  updateAdvocateInvoiceValidation,
   createOrgUserValidation,
   updateOrgUserValidation,
   assignOrgModulesValidation,

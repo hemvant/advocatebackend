@@ -243,6 +243,8 @@ Invoice.belongsTo(Subscription, { foreignKey: 'subscription_id' });
 Subscription.hasMany(Invoice, { foreignKey: 'subscription_id' });
 Invoice.belongsTo(Package, { foreignKey: 'package_id' });
 Package.hasMany(Invoice, { foreignKey: 'package_id' });
+Case.hasMany(Invoice, { foreignKey: 'case_id' });
+Invoice.belongsTo(Case, { foreignKey: 'case_id' });
 
 Package.belongsToMany(Module, {
   through: PackageModule,

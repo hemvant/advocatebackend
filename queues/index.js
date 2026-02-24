@@ -18,5 +18,6 @@ function createQueue(name, defaultJobOptions) {
 const remindersQueue = createQueue('reminders');
 const emailQueue = createQueue('email');
 const reportsQueue = createQueue('reports', { removeOnComplete: { count: 100 }, attempts: 2 });
+const whatsappQueue = createQueue('whatsapp', { removeOnComplete: { count: 500 }, attempts: 2 });
 
-module.exports = { remindersQueue, emailQueue, reportsQueue, createQueue };
+module.exports = { remindersQueue, emailQueue, reportsQueue, whatsappQueue, createQueue };

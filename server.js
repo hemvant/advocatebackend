@@ -10,6 +10,8 @@ const errorHandler = require('./middleware/errorHandler');
 const requestLogger = require('./middleware/requestLogger');
 const { testConnection } = require('./utils/db');
 const { initReminderCron } = require('./utils/reminderJob');
+const { initECourtSyncCron } = require('./utils/ecourtSyncJob');
+const { initWhatsAppReminderCron } = require('./utils/whatsappReminderJob');
 const logger = require('./utils/logger');
 const { UPLOAD_BASE, ensureDir } = require('./config/uploads');
 
@@ -52,6 +54,8 @@ const { setProcessStartTime } = require('./utils/serverStartTime');
 
 testConnection().then(function() {
   initReminderCron();
+  initECourtSyncCron();
+  initWhatsAppReminderCron();
   app.listen(config.port, function() {
     setProcessStartTime();
     logger.info('Server running on port ' + config.port);

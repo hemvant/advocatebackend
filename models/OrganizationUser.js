@@ -45,7 +45,8 @@ const OrganizationUser = sequelize.define('OrganizationUser', {
     type: DataTypes.ENUM('active', 'inactive', 'left'),
     allowNull: false,
     defaultValue: 'active'
-  }
+  },
+  phone: { type: DataTypes.STRING(50), allowNull: true }
 }, {
   tableName: 'organization_users',
   timestamps: true,

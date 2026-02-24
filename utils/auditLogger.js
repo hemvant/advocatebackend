@@ -4,8 +4,8 @@ const crypto = require('crypto');
 const { AuditLog } = require('../models');
 const { generateChangeSummary, buildActionSummary } = require('./auditDiff');
 
-const MODULES = Object.freeze(['DOCUMENTS', 'HEARINGS', 'CASES', 'CLIENTS', 'COURTS', 'AUTH', 'EMPLOYEES', 'REPORTS']);
-const ACTION_TYPES = Object.freeze(['CREATE', 'UPDATE', 'DELETE', 'RESTORE', 'LOGIN', 'LOGOUT', 'VIEW', 'DOWNLOAD', 'ASSIGN', 'MODULE_CHANGE']);
+const MODULES = Object.freeze(['DOCUMENTS', 'HEARINGS', 'CASES', 'CLIENTS', 'COURTS', 'AUTH', 'EMPLOYEES', 'REPORTS', 'BILLING', 'AI']);
+const ACTION_TYPES = Object.freeze(['CREATE', 'UPDATE', 'DELETE', 'RESTORE', 'LOGIN', 'LOGOUT', 'VIEW', 'DOWNLOAD', 'ASSIGN', 'MODULE_CHANGE', 'NOTIFY', 'EXTRACT', 'CASE_SUMMARY', 'DRAFT']);
 
 function getIp(req) {
   if (!req) return null;

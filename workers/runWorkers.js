@@ -3,12 +3,14 @@ require('../models');
 const { startReminderWorker } = require('./reminderWorker');
 const { startEmailWorker } = require('./emailWorker');
 const { startReportWorker } = require('./reportWorker');
+const { startWhatsAppWorker } = require('./whatsappWorker');
 const logger = require('../utils/logger');
 
 const workers = [];
 if (startReminderWorker()) workers.push('reminders');
 if (startEmailWorker()) workers.push('email');
 if (startReportWorker()) workers.push('reports');
+if (startWhatsAppWorker()) workers.push('whatsapp');
 
 logger.info('Workers started: ' + (workers.length ? workers.join(', ') : 'none (Redis required)'));
 

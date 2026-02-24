@@ -89,6 +89,11 @@ const CaseHearing = sequelize.define('CaseHearing', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false
+  },
+  whatsapp_reminder_sent: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
   }
 }, {
   tableName: 'case_hearings',

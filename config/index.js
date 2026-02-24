@@ -5,6 +5,11 @@ const paymentKeyId = process.env.RAZORPAY_KEY_ID || '';
 const paymentKeySecret = process.env.RAZORPAY_KEY_SECRET || '';
 const paymentGatewayConfigured = !!(paymentKeyId && paymentKeySecret);
 
+const whatsappApiUrl = (process.env.WHATSAPP_API_URL || '').trim();
+const whatsappAccessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+const whatsappPhoneId = (process.env.WHATSAPP_PHONE_ID || '').trim();
+const whatsappConfigured = !!(whatsappApiUrl && whatsappAccessToken && whatsappPhoneId);
+
 module.exports = {
   env: process.env.NODE_ENV || 'development',
   port: process.env.PORT || 5000,
@@ -27,5 +32,11 @@ module.exports = {
     isConfigured: paymentGatewayConfigured,
     razorpayKeyId: paymentKeyId,
     razorpayKeySecret: paymentKeySecret
+  },
+  whatsapp: {
+    isConfigured: whatsappConfigured,
+    apiUrl: whatsappApiUrl,
+    accessToken: whatsappAccessToken,
+    phoneId: whatsappPhoneId
   }
 };

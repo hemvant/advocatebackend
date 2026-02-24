@@ -97,7 +97,13 @@ const Case = sequelize.define('Case', {
     type: DataTypes.ENUM('Active', 'Closed', 'On_Hold', 'Appeal'),
     allowNull: false,
     defaultValue: 'Active'
-  }
+  },
+  cnr_number: { type: DataTypes.STRING(100), allowNull: true },
+  auto_sync_enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  last_synced_at: { type: DataTypes.DATE, allowNull: true },
+  external_status: { type: DataTypes.STRING(255), allowNull: true },
+  external_next_hearing_date: { type: DataTypes.DATEONLY, allowNull: true },
+  case_summary: { type: DataTypes.TEXT, allowNull: true }
 }, {
   tableName: 'cases',
   timestamps: true,

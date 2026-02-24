@@ -25,6 +25,9 @@ router.put('/:id/permissions', sanitizeBody, setCasePermissionsValidation, valid
 router.get('/:id/history', caseController.getCaseHistory);
 router.get('/:id', caseController.getCaseById);
 router.put('/:caseId/judge', sanitizeBody, assignJudgeToCaseValidation, validate, judgeController.assignJudgeToCase);
+router.post('/:id/sync-ecourts', checkCasePermission('EDIT'), caseController.syncCaseFromECourts);
+router.post('/:id/send-hearing-reminder', checkCasePermission('EDIT'), caseController.sendHearingReminderWhatsApp);
+router.post('/:id/generate-summary', checkCasePermission('EDIT'), caseController.generateCaseSummary);
 router.put('/:id', checkCasePermission('EDIT'), sanitizeBody, updateCaseValidation, validate, caseController.updateCase);
 router.delete('/:id', checkCasePermission('DELETE'), caseController.softDeleteCase);
 router.post('/:id/hearings', sanitizeBody, addHearingValidation, validate, caseController.addHearing);

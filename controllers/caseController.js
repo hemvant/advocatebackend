@@ -5,6 +5,9 @@ const auditService = require('../utils/auditService');
 const cache = require('../utils/cache');
 const { cursorByIdDesc, cursorFromRow } = require('../utils/pagination');
 const { logCaseActivity } = require('../utils/caseActivityLogger');
+const { fetchCaseStatusByCNR } = require('../services/ecourtSyncService');
+const { queueWhatsAppMessage } = require('../utils/whatsappQueue');
+const aiService = require('../utils/aiService');
 
 async function buildCaseWhere(user) {
   const base = { organization_id: user.organization_id, is_deleted: false };
@@ -39,7 +42,7 @@ async function getCaseWithAccess(caseId, user) {
     include: [
       { model: Client, as: 'Client', attributes: ['id', 'name', 'email', 'phone'] },
       { model: OrganizationUser, as: 'Creator', attributes: ['id', 'name', 'email'] },
-      { model: OrganizationUser, as: 'Assignee', attributes: ['id', 'name', 'email'] },
+      { model: OrganizationUser, as: 'Assignee', attributes: ['id', 'name', 'email', 'phone'] },
       { model: OrganizationUser, as: 'AssignedByUser', attributes: ['id', 'name'] },
       { model: Court, as: 'Court', attributes: ['id', 'name'], include: [{ model: CourtType, as: 'CourtType', attributes: ['id', 'name'] }] },
       { model: CourtBench, as: 'Bench', attributes: ['id', 'name'] },
@@ -271,7 +274,7 @@ const updateCase = async (req, res, next) => {
       await t.rollback();
       return res.status(404).json({ success: false, message: 'Case not found' });
     }
-    const { case_title, case_number, court_id, bench_id, judge_id, courtroom_id, case_type, status, priority, filing_date, next_hearing_date, description, assigned_to, case_lifecycle_status } = req.body;
+    const { case_title, case_number, court_id, bench_id, judge_id, courtroom_id, case_type, status, priority, filing_date, next_hearing_date, description, assigned_to, case_lifecycle_status, cnr_number, auto_sync_enabled } = req.body;
     const updates = {};
     if (case_title !== undefined) {
       const titleTrim = case_title.trim();
@@ -307,6 +310,8 @@ const updateCase = async (req, res, next) => {
     if (next_hearing_date !== undefined) updates.next_hearing_date = next_hearing_date || null;
     if (description !== undefined) updates.description = description || null;
     if (case_lifecycle_status !== undefined) updates.case_lifecycle_status = case_lifecycle_status;
+    if (cnr_number !== undefined) updates.cnr_number = (cnr_number || '').trim() || null;
+    if (auto_sync_enabled !== undefined) updates.auto_sync_enabled = !!auto_sync_enabled;
 
     let reassignActivitySummary = null;
     if (assigned_to !== undefined && user.role === 'ORG_ADMIN') {
@@ -809,6 +814,152 @@ const setCasePermissions = async (req, res, next) => {
   }
 };
 
+function formatHearingDateForWhatsApp(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? '—' : dt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+const sendHearingReminderWhatsApp = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const caseRecord = await getCaseWithAccess(req.params.id, user);
+    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
+
+    const now = new Date();
+    const nextHearing = await CaseHearing.findOne({
+      where: {
+        case_id: caseRecord.id,
+        is_deleted: false,
+        status: 'UPCOMING',
+        hearing_date: { [Op.gte]: now }
+      },
+      order: [['hearing_date', 'ASC']]
+    });
+    if (!nextHearing) {
+      return res.status(400).json({ success: false, message: 'No upcoming hearing for this case' });
+    }
+
+    const caseTitle = caseRecord.case_title || 'Case';
+    const hearingDateStr = formatHearingDateForWhatsApp(nextHearing.hearing_date);
+    const courtroom = nextHearing.courtroom || '—';
+    const params = [caseTitle, hearingDateStr, courtroom];
+
+    let queued = false;
+    if (caseRecord.Assignee?.phone) {
+      queueWhatsAppMessage(caseRecord.Assignee.phone, 'hearing_reminder', params);
+      queued = true;
+    }
+    if (caseRecord.Client?.phone) {
+      queueWhatsAppMessage(caseRecord.Client.phone, 'hearing_reminder', params);
+      queued = true;
+    }
+
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'HEARING',
+      entity_id: nextHearing.id,
+      action_type: 'NOTIFY',
+      module_name: 'HEARINGS',
+      new_value: { template: 'hearing_reminder', case_id: caseRecord.id, hearing_id: nextHearing.id },
+      action_summary: `WhatsApp hearing reminder sent for hearing (${hearingDateStr}).`
+    });
+
+    res.json({ success: true, message: queued ? 'WhatsApp reminder queued for assignee and/or client.' : 'No phone numbers available; add phone for assignee or client to send.' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const syncCaseFromECourts = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const caseRecord = await getCaseWithAccess(req.params.id, user);
+    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
+
+    const cnr = (caseRecord.cnr_number || '').trim();
+    if (!cnr) {
+      return res.status(400).json({ success: false, message: 'CNR number is required for eCourts sync. Add it in Edit Case.' });
+    }
+
+    const result = await fetchCaseStatusByCNR(cnr);
+    if (!result.success) {
+      return res.status(502).json({ success: false, message: result.error || 'Failed to fetch eCourts status' });
+    }
+
+    const { status, next_hearing_date } = result.data || {};
+    const oldSnapshot = {
+      external_status: caseRecord.external_status,
+      external_next_hearing_date: caseRecord.external_next_hearing_date,
+      last_synced_at: caseRecord.last_synced_at ? caseRecord.last_synced_at.toISOString() : null
+    };
+    const now = new Date();
+    await caseRecord.update({
+      external_status: status != null ? String(status) : null,
+      external_next_hearing_date: next_hearing_date || null,
+      last_synced_at: now
+    });
+
+    const updated = await getCaseWithAccess(caseRecord.id, user);
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'CASE',
+      entity_id: caseRecord.id,
+      action_type: 'UPDATE',
+      module_name: 'CASE_MANAGEMENT',
+      old_value: oldSnapshot,
+      new_value: { ...oldSnapshot, external_status: caseRecord.external_status, external_next_hearing_date: caseRecord.external_next_hearing_date, last_synced_at: now.toISOString() },
+      action_summary: `eCourts sync: case ${caseRecord.case_number || caseRecord.id} updated from eCourts (status: ${status || '—'}, next hearing: ${next_hearing_date || '—'}).`
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** Generate case summary using AI (or static fallback). Store in case_summary and log AI usage. */
+const generateCaseSummary = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const caseRecord = await getCaseWithAccess(req.params.id, user);
+    if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
+
+    const hearingsSummary = (caseRecord.CaseHearings || [])
+      .slice(0, 10)
+      .map((h) => `${h.hearing_date || ''} - ${h.courtroom || ''} ${h.remarks || ''}`.trim())
+      .join('; ');
+    const caseContext = {
+      case_title: caseRecord.case_title,
+      case_number: caseRecord.case_number,
+      client_name: caseRecord.Client?.name,
+      description: caseRecord.description,
+      hearings_summary: hearingsSummary
+    };
+    const summary = await aiService.generateCaseSummary(caseContext);
+    if (!summary) return res.status(500).json({ success: false, message: 'Could not generate summary' });
+
+    await caseRecord.update({ case_summary: summary });
+    await auditService.log(req, {
+      organization_id: user.organization_id,
+      user_id: user.id,
+      entity_type: 'AI_USAGE',
+      entity_id: caseRecord.id,
+      action_type: 'CASE_SUMMARY',
+      action_summary: `Case summary generated for case ${caseRecord.case_number || caseRecord.id}`,
+      entity_label: caseRecord.case_title,
+      module_name: 'AI'
+    });
+
+    const updated = await getCaseWithAccess(caseRecord.id, user);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   listCaseClients,
   createCase,
@@ -822,5 +973,8 @@ module.exports = {
   uploadCaseDocument,
   removeCaseDocument,
   getCasePermissions,
-  setCasePermissions
+  setCasePermissions,
+  syncCaseFromECourts,
+  sendHearingReminderWhatsApp,
+  generateCaseSummary
 };

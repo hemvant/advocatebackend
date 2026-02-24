@@ -77,6 +77,10 @@ const CaseDocument = sequelize.define('CaseDocument', {
     type: DataTypes.ENUM(...OCR_STATUSES),
     allowNull: true,
     defaultValue: 'PENDING'
+  },
+  extracted_metadata: {
+    type: DataTypes.JSON,
+    allowNull: true
   }
 }, {
   tableName: 'case_documents',

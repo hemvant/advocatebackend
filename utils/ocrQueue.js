@@ -1,6 +1,8 @@
 const { CaseDocument } = require('../models');
 const { UPLOAD_BASE } = require('../config/uploads');
 const ocrService = require('../services/ocrService');
+const aiService = require('./aiService');
+const auditService = require('./auditService');
 const logger = require('./logger');
 
 let processing = false;
@@ -53,6 +55,26 @@ async function runOcrForDocument(documentId) {
     ocr_status: result.error && !result.text ? 'FAILED' : 'COMPLETED',
     ocr_text: result.text || null
   });
+
+  // AI extraction: party_names, case_number, dates (static flow when no API key)
+  if (result.text) {
+    try {
+      const extracted = await aiService.extractMetadataFromOcr(result.text);
+      await doc.update({ extracted_metadata: extracted });
+      await auditService.log(null, {
+        organization_id: doc.organization_id,
+        user_id: doc.uploaded_by,
+        entity_type: 'AI_USAGE',
+        entity_id: doc.id,
+        action_type: 'EXTRACT',
+        action_summary: 'OCR metadata extraction (document)',
+        entity_label: doc.document_name || 'Document',
+        module_name: 'AI'
+      });
+    } catch (err) {
+      logger.warn('[OCR] extractMetadata error:', err && err.message);
+    }
+  }
 }
 
 function triggerOcr(documentId) {

@@ -13,6 +13,7 @@ const auditLogRoutes = require('./auditLogRoutes');
 const analyticsRoutes = require('./analyticsRoutes');
 const taskRoutes = require('./taskRoutes');
 const billingRoutes = require('./billingRoutes');
+const aiRoutes = require('./aiRoutes');
 const organizationAuth = require('../middleware/organizationAuth');
 const { moduleAccessMiddleware } = require('../middleware/moduleAccess');
 
@@ -32,6 +33,7 @@ router.use('/audit-logs', organizationAuth, moduleAccessMiddleware('Reports'), a
 router.use('/analytics', organizationAuth, moduleAccessMiddleware('Reports'), analyticsRoutes);
 router.use('/tasks', organizationAuth, moduleAccessMiddleware('Case Management'), taskRoutes);
 router.use('/billing', organizationAuth, moduleAccessMiddleware('Billing'), billingRoutes);
+router.use('/ai', organizationAuth, aiRoutes);
 
 router.get('/health', (req, res) => {
   res.json({ success: true, message: 'OK' });
