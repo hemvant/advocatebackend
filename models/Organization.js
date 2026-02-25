@@ -31,6 +31,20 @@ const Organization = sequelize.define('Organization', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true
+  },
+  type: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    defaultValue: 'FIRM'
+  },
+  is_trial: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  trial_ends_at: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'organizations',

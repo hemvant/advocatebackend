@@ -1,4 +1,4 @@
-const { OrganizationUser, Organization, Module, EmployeeModule } = require('../models');
+const { OrganizationUser, Organization, Module, EmployeeModule, OrganizationModule } = require('../models');
 const bcrypt = require('bcrypt');
 const auditService = require('../utils/auditService');
 const { getActiveSubscription } = require('../utils/subscriptionService');
@@ -42,7 +42,8 @@ const create = async (req, res, next) => {
   try {
     const organizationId = req.user.organization_id;
     const { name, email, password, role } = req.body;
-    const existing = await OrganizationUser.findOne({ where: { email } });
+    const emailNorm = (email || '').trim().toLowerCase();
+    const existing = await OrganizationUser.findOne({ where: { email: emailNorm } });
     if (existing) {
       return res.status(409).json({ success: false, message: 'Email already registered' });
     }
@@ -59,13 +60,22 @@ const create = async (req, res, next) => {
     const user = await OrganizationUser.create({
       organization_id: organizationId,
       name,
-      email,
+      email: emailNorm,
       password,
       role: role || 'EMPLOYEE',
       is_active: true,
-      is_approved: false,
+      is_approved: true,
       status: 'active'
     });
+    const orgModules = await OrganizationModule.findAll({
+      where: { organization_id: organizationId },
+      attributes: ['module_id']
+    });
+    if (orgModules.length > 0) {
+      await EmployeeModule.bulkCreate(
+        orgModules.map((row) => ({ organization_user_id: user.id, module_id: row.module_id }))
+      );
+    }
     const userResponse = user.toJSON();
     await auditService.log(req, {
       organization_id: organizationId,

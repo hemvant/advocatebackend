@@ -46,7 +46,15 @@ const OrganizationUser = sequelize.define('OrganizationUser', {
     allowNull: false,
     defaultValue: 'active'
   },
-  phone: { type: DataTypes.STRING(50), allowNull: true }
+  phone: { type: DataTypes.STRING(50), allowNull: true },
+  mobile: { type: DataTypes.STRING(50), allowNull: true },
+  is_email_verified: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  email_verification_token: { type: DataTypes.STRING(255), allowNull: true },
+  email_verification_expires: { type: DataTypes.DATE, allowNull: true }
 }, {
   tableName: 'organization_users',
   timestamps: true,

@@ -19,7 +19,7 @@ module.exports = {
     cookieName: 'access_token'
   },
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: true,
     credentials: true
   },
   cookieOptions: {

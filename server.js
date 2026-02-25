@@ -56,8 +56,8 @@ testConnection().then(function() {
   initReminderCron();
   initECourtSyncCron();
   initWhatsAppReminderCron();
-  app.listen(config.port, function() {
+  app.listen(config.port, '0.0.0.0', function() {
     setProcessStartTime();
-    logger.info('Server running on port ' + config.port);
+    logger.info('Server running on port ' + config.port + ' (all interfaces)');
   });
 }).catch(function() { process.exit(1); });

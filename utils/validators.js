@@ -368,8 +368,29 @@ const updateAdvocateInvoiceValidation = [
   body('due_date').optional().isDate()
 ];
 
+const publicRegisterValidation = [
+  body('account_type').isIn(['ORGANIZATION', 'SOLO']).withMessage('account_type must be ORGANIZATION or SOLO'),
+  body('organization_name')
+    .optional({ values: 'falsy' }).trim()
+    .custom((val, { req }) => {
+      if (req.body && req.body.account_type === 'ORGANIZATION' && !(val && String(val).trim())) {
+        throw new Error('Organization name is required for Law Firm');
+      }
+      return true;
+    })
+    .isLength({ max: 255 }).withMessage('Organization name too long'),
+  body('advocate_name').trim().notEmpty().withMessage('Advocate name is required').isLength({ max: 255 }),
+  body('email').trim().notEmpty().withMessage('Email is required').isEmail().withMessage('Invalid email').normalizeEmail(),
+  body('mobile').optional().trim().isLength({ max: 50 }),
+  body('password')
+    .notEmpty().withMessage('Password is required')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+];
+
 module.exports = {
   registerValidation,
+  publicRegisterValidation,
   loginValidation,
   approveUserValidation,
   assignModulesValidation,

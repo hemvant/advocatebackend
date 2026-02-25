@@ -1,5 +1,6 @@
 const express = require('express');
 const superAdminRoutes = require('./superAdminRoutes');
+const publicRoutes = require('./publicRoutes');
 const orgRoutes = require('./orgRoutes');
 const clientRoutes = require('./clientRoutes');
 const caseRoutes = require('./caseRoutes');
@@ -20,6 +21,7 @@ const { moduleAccessMiddleware } = require('../middleware/moduleAccess');
 const router = express.Router();
 
 router.use('/super-admin', superAdminRoutes);
+router.use('/', publicRoutes);
 router.use('/org', orgRoutes);
 router.use('/clients', organizationAuth, moduleAccessMiddleware('Client Management'), clientRoutes);
 router.use('/cases', organizationAuth, moduleAccessMiddleware('Case Management'), caseRoutes);
