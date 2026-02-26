@@ -10,6 +10,8 @@ const whatsappAccessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
 const whatsappPhoneId = (process.env.WHATSAPP_PHONE_ID || '').trim();
 const whatsappConfigured = !!(whatsappApiUrl && whatsappAccessToken && whatsappPhoneId);
 
+const isDev = (process.env.NODE_ENV || 'development') === 'development';
+
 module.exports = {
   env: process.env.NODE_ENV || 'development',
   port: process.env.PORT || 5000,
@@ -19,8 +21,13 @@ module.exports = {
     cookieName: 'access_token'
   },
   cors: {
-    origin: true,
-    credentials: true
+    origin: isDev
+      ? (origin, callback) => callback(null, origin || true)
+      : true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    exposedHeaders: ['Set-Cookie']
   },
   cookieOptions: {
     httpOnly: true,

@@ -12,6 +12,7 @@ const { testConnection } = require('./utils/db');
 const { initReminderCron } = require('./utils/reminderJob');
 const { initECourtSyncCron } = require('./utils/ecourtSyncJob');
 const { initWhatsAppReminderCron } = require('./utils/whatsappReminderJob');
+const { initCourtDiaryReminderCron } = require('./utils/courtDiaryReminderJob');
 const logger = require('./utils/logger');
 const { UPLOAD_BASE, ensureDir } = require('./config/uploads');
 
@@ -28,10 +29,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: false
 }));
-app.use(cors({
-  origin: config.cors.origin,
-  credentials: config.cors.credentials
-}));
+app.use(cors(config.cors));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
@@ -56,6 +54,7 @@ testConnection().then(function() {
   initReminderCron();
   initECourtSyncCron();
   initWhatsAppReminderCron();
+  initCourtDiaryReminderCron();
   app.listen(config.port, '0.0.0.0', function() {
     setProcessStartTime();
     logger.info('Server running on port ' + config.port + ' (all interfaces)');

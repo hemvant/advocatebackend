@@ -77,6 +77,18 @@ const assignOrgModulesValidation = [
   body('module_ids.*').isInt({ min: 1 }).withMessage('Each module_id must be a positive integer')
 ];
 
+const orgProfileValidation = [
+  body('name').optional().trim().notEmpty().isLength({ max: 255 }),
+  body('email').optional().trim().isEmail().normalizeEmail(),
+  body('phone').optional().trim().isLength({ max: 50 }),
+  body('address').optional().trim()
+];
+
+const userProfileValidation = [
+  body('name').optional().trim().notEmpty().isLength({ max: 255 }),
+  body('mobile').optional().trim().isLength({ max: 50 })
+];
+
 const createPackageValidation = [
   body('name').trim().notEmpty().withMessage('Package name is required').isLength({ max: 100 }),
   body('description').optional().trim(),
@@ -218,13 +230,21 @@ const updateCaseValidation = [
   body('auto_sync_enabled').optional().isBoolean()
 ];
 
+// hearing_date is validated in the controller (addHearing) for clear error messages; no route validator here
 const addHearingValidation = [
-  body('hearing_date').optional().isDate(),
   body('courtroom').optional().trim().isLength({ max: 100 }),
   body('courtroom_id').optional().isInt({ min: 1 }),
   body('judge_id').optional().isInt({ min: 1 }),
   body('bench_id').optional().isInt({ min: 1 }),
-  body('remarks').optional().trim()
+  body('remarks').optional().trim(),
+  body('outcome_status').optional().trim(),
+  body('outcome_notes').optional().trim(),
+  body('next_hearing_date').optional().custom((value) => {
+    if (value == null || value === '' || (typeof value === 'string' && !value.trim())) return true;
+    const d = new Date(value);
+    if (isNaN(d.getTime())) throw new Error('Next hearing date must be a valid date.');
+    return true;
+  })
 ];
 
 const uploadDocumentValidation = [
@@ -263,10 +283,33 @@ const addReminderValidation = [
   body('reminder_type').optional().isIn(['EMAIL', 'SYSTEM'])
 ];
 
+const rescheduleHearingValidation = [
+  body('hearing_date').notEmpty().withMessage('hearing_date is required').isISO8601().toDate(),
+  body('reason').optional().trim().isLength({ max: 500 })
+];
+
 const documentUploadValidation = [
   body('case_id').toInt().isInt({ min: 1 }).withMessage('case_id is required'),
   body('document_name').trim().notEmpty().withMessage('document_name is required').isLength({ max: 255 }),
   body('document_type').optional().isIn(['PETITION', 'EVIDENCE', 'AGREEMENT', 'NOTICE', 'ORDER', 'OTHER'])
+];
+const documentBulkUploadValidation = [
+  body('case_id').toInt().isInt({ min: 1 }).withMessage('case_id is required'),
+  body('document_type').optional().isIn(['PETITION', 'EVIDENCE', 'AGREEMENT', 'NOTICE', 'ORDER', 'OTHER'])
+];
+
+const stampDutyConfigValidation = [
+  body('state').trim().notEmpty().withMessage('state is required'),
+  body('document_type').optional().isIn(['PETITION', 'EVIDENCE', 'AGREEMENT', 'NOTICE', 'ORDER', 'OTHER']),
+  body('rate_type').optional().isIn(['PERCENTAGE', 'FIXED']),
+  body('rate_value').isFloat({ min: 0 }).withMessage('rate_value must be a number >= 0'),
+  body('min_amount').optional().isFloat({ min: 0 }),
+  body('max_amount').optional().isFloat({ min: 0 })
+];
+const stampDutyCalculateValidation = [
+  body('state').trim().notEmpty().withMessage('state is required'),
+  body('document_type').optional().isIn(['PETITION', 'EVIDENCE', 'AGREEMENT', 'NOTICE', 'ORDER', 'OTHER']),
+  body('amount').optional().isFloat({ min: 0 })
 ];
 
 const documentUpdateMetadataValidation = [
@@ -351,6 +394,8 @@ const createAdvocateInvoiceValidation = [
   body('advance_received').optional().isFloat({ min: 0 }),
   body('gst_enabled').optional().isBoolean(),
   body('gst_percentage').optional().isFloat({ min: 0, max: 100 }),
+  body('gstin').optional().trim().isLength({ max: 20 }),
+  body('is_same_state').optional().isBoolean(),
   body('case_id').optional().isInt({ min: 1 }),
   body('due_date').optional().isDate()
 ];
@@ -364,8 +409,46 @@ const updateAdvocateInvoiceValidation = [
   body('advance_received').optional().isFloat({ min: 0 }),
   body('gst_enabled').optional().isBoolean(),
   body('gst_percentage').optional().isFloat({ min: 0, max: 100 }),
+  body('is_same_state').optional().isBoolean(),
   body('case_id').optional().isInt({ min: 1 }),
   body('due_date').optional().isDate()
+];
+
+const recordPaymentValidation = [
+  body('amount').isFloat({ min: 0.01 }).withMessage('Valid amount required'),
+  body('payment_date').optional().isDate(),
+  body('transaction_id').optional().trim().isLength({ max: 100 }),
+  body('upi_reference_id').optional().trim().isLength({ max: 100 }),
+  body('method').optional().trim().isIn(['CASH', 'UPI', 'BANK', 'CARD', 'CHEQUE', 'OTHER']),
+  body('notes').optional().trim()
+];
+
+const createExpenseValidation = [
+  body('category').trim().notEmpty().withMessage('Category required').isLength({ max: 100 }),
+  body('amount').isFloat({ min: 0 }).withMessage('Valid amount required'),
+  body('case_id').optional().isInt({ min: 1 }),
+  body('expense_date').optional().isDate(),
+  body('description').optional().trim(),
+  body('receipt_path').optional().trim().isLength({ max: 500 })
+];
+
+const updateExpenseValidation = [
+  body('category').optional().trim().isLength({ max: 100 }),
+  body('amount').optional().isFloat({ min: 0 }),
+  body('case_id').optional(),
+  body('expense_date').optional().isDate(),
+  body('description').optional().trim(),
+  body('receipt_path').optional().trim().isLength({ max: 500 })
+];
+
+const createTdsRecordValidation = [
+  body('amount').isFloat({ min: 0 }).withMessage('Valid amount required'),
+  body('tds_amount').isFloat({ min: 0 }).withMessage('Valid tds_amount required'),
+  body('invoice_id').optional().isInt({ min: 1 }),
+  body('payment_id').optional().isInt({ min: 1 }),
+  body('tds_percentage').optional().isFloat({ min: 0, max: 100 }),
+  body('financial_year').optional().trim().isLength({ max: 9 }),
+  body('deduction_date').optional().isDate()
 ];
 
 const publicRegisterValidation = [
@@ -388,9 +471,38 @@ const publicRegisterValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ];
 
+const passwordRule = [
+  body('password')
+    .notEmpty().withMessage('Password is required')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
+  body('confirm_password').custom((val, { req }) => {
+    if (val !== req.body.password) throw new Error('Passwords do not match');
+    return true;
+  })
+];
+
+const registerOrganisationValidation = [
+  body('full_name').trim().notEmpty().withMessage('Full name is required').isLength({ max: 255 }),
+  body('email').trim().notEmpty().withMessage('Email is required').isEmail().withMessage('Invalid email').normalizeEmail(),
+  body('mobile').trim().notEmpty().withMessage('Mobile is required').isLength({ max: 50 }),
+  ...passwordRule,
+  body('organisation_name').trim().notEmpty().withMessage('Organisation name is required').isLength({ max: 255 }),
+  body('office_address').trim().notEmpty().withMessage('Office address is required')
+];
+
+const registerAdvocateValidation = [
+  body('full_name').trim().notEmpty().withMessage('Full name is required').isLength({ max: 255 }),
+  body('email').trim().notEmpty().withMessage('Email is required').isEmail().withMessage('Invalid email').normalizeEmail(),
+  body('mobile').trim().notEmpty().withMessage('Mobile is required').isLength({ max: 50 }),
+  ...passwordRule
+];
+
 module.exports = {
   registerValidation,
   publicRegisterValidation,
+  registerOrganisationValidation,
+  registerAdvocateValidation,
   loginValidation,
   approveUserValidation,
   assignModulesValidation,
@@ -408,9 +520,15 @@ module.exports = {
   verifyPaymentValidation,
   createAdvocateInvoiceValidation,
   updateAdvocateInvoiceValidation,
+  recordPaymentValidation,
+  createExpenseValidation,
+  updateExpenseValidation,
+  createTdsRecordValidation,
   createOrgUserValidation,
   updateOrgUserValidation,
   assignOrgModulesValidation,
+  orgProfileValidation,
+  userProfileValidation,
   assignEmployeeModulesValidation,
   createClientValidation,
   updateClientValidation,
@@ -425,8 +543,12 @@ module.exports = {
   createHearingValidation,
   updateHearingValidation,
   addReminderValidation,
+  rescheduleHearingValidation,
   documentUploadValidation,
+  documentBulkUploadValidation,
   documentUpdateMetadataValidation,
+  stampDutyConfigValidation,
+  stampDutyCalculateValidation,
   createCourtValidation,
   updateCourtValidation,
   addBenchValidation,

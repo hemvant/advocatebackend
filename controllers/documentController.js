@@ -11,6 +11,7 @@ const {
 } = require('../models');
 const { Op } = require('sequelize');
 const { UPLOAD_BASE, writeUploadToDisk } = require('../config/uploads');
+const jwt = require('jsonwebtoken');
 const auditService = require('../utils/auditService');
 const ocrQueue = require('../utils/ocrQueue');
 
@@ -61,7 +62,11 @@ async function uploadDocument(req, res, next) {
       await t.rollback();
       return res.status(404).json({ success: false, message: 'Case not found' });
     }
-    const relativePath = writeUploadToDisk(file, user.organization_id, caseRecord.id);
+    const documentType = document_type || 'OTHER';
+    const relativePath = writeUploadToDisk(file, user.organization_id, caseRecord.id, {
+      caseNumber: caseRecord.case_number,
+      documentType
+    });
     const docName = (document_name || file.originalname || 'Document').trim().slice(0, 255);
     const originalName = (file.originalname || '').slice(0, 255);
     const doc = await CaseDocument.create({
@@ -74,23 +79,27 @@ async function uploadDocument(req, res, next) {
       file_path: relativePath,
       file_size: file.size,
       mime_type: file.mimetype,
-      document_type: document_type || 'OTHER',
+      document_type: documentType,
       version_number: 1,
       current_version: 1,
       is_deleted: false,
       ocr_status: 'PENDING'
     }, { transaction: t });
+    const changeNote = (req.body.change_note || '').trim().slice(0, 2000) || null;
     await DocumentVersion.create({
       document_id: doc.id,
       organization_id: user.organization_id,
       version_number: 1,
+      previous_version_id: null,
       file_path: relativePath,
       file_name: originalName || docName,
       file_size: file.size,
       mime_type: file.mimetype,
       change_type: 'CREATED',
       changed_by: user.id,
-      change_summary: 'Document created'
+      change_summary: 'Document created',
+      change_note: changeNote,
+      uploaded_by: user.id
     }, { transaction: t });
     await t.commit();
     setImmediate(() => ocrQueue.triggerOcr(doc.id));
@@ -485,10 +494,16 @@ async function uploadNewVersion(req, res, next) {
     if (!file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const doc = req.document || (await getDocumentWithAccess(req.params.id, user));
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+    const previousVersion = await DocumentVersion.findOne({
+      where: { document_id: doc.id, organization_id: doc.organization_id, version_number: doc.version_number },
+      order: [['id', 'DESC']]
+    });
+    const changeNote = (req.body.change_note || '').trim().slice(0, 2000) || null;
     await DocumentVersion.create({
       document_id: doc.id,
       organization_id: doc.organization_id,
       version_number: doc.version_number,
+      previous_version_id: previousVersion ? previousVersion.id : null,
       file_path: doc.file_path,
       file_name: doc.original_file_name || doc.document_name,
       file_size: doc.file_size,
@@ -496,9 +511,15 @@ async function uploadNewVersion(req, res, next) {
       ocr_text: doc.ocr_text,
       change_type: 'UPDATED_FILE',
       changed_by: user.id,
-      change_summary: 'New file uploaded'
+      change_summary: 'New file uploaded',
+      change_note: changeNote,
+      uploaded_by: user.id
     }, { transaction: t });
-    const relativePath = writeUploadToDisk(file, doc.organization_id, doc.case_id);
+    const caseRecord = await Case.findByPk(doc.case_id, { attributes: ['case_number'] });
+    const relativePath = writeUploadToDisk(file, doc.organization_id, doc.case_id, caseRecord ? {
+      caseNumber: caseRecord.case_number,
+      documentType: doc.document_type
+    } : {});
     doc.version_number += 1;
     doc.current_version = doc.version_number;
     doc.file_path = relativePath;
@@ -524,6 +545,122 @@ async function uploadNewVersion(req, res, next) {
   }
 }
 
+async function getSignedDownloadUrl(req, res, next) {
+  try {
+    const doc = req.document || (await getDocumentWithAccess(req.params.id, req.user));
+    if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+    const expiresSec = Math.min(86400, Math.max(60, parseInt(req.query.expires, 10) || 3600));
+    const secret = process.env.JWT_SECRET || process.env.DOCUMENT_DOWNLOAD_SECRET || 'document-download-secret';
+    const token = jwt.sign(
+      { documentId: doc.id, sub: 'doc-download', orgId: doc.organization_id },
+      secret,
+      { expiresIn: expiresSec }
+    );
+    const baseUrl = (process.env.API_BASE_URL || req.protocol + '://' + req.get('host')) + (process.env.API_PREFIX || '');
+    const url = `${baseUrl}/documents/download?token=${encodeURIComponent(token)}`;
+    res.json({ success: true, data: { url, token, expiresIn: expiresSec, expiresAt: new Date(Date.now() + expiresSec * 1000).toISOString() } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function downloadWithToken(req, res, next) {
+  try {
+    const token = req.query.token;
+    if (!token) return res.status(400).json({ success: false, message: 'Token required' });
+    const secret = process.env.JWT_SECRET || process.env.DOCUMENT_DOWNLOAD_SECRET || 'document-download-secret';
+    let payload;
+    try {
+      payload = jwt.verify(token, secret);
+    } catch (e) {
+      return res.status(403).json({ success: false, message: 'Invalid or expired link' });
+    }
+    if (payload.sub !== 'doc-download' || !payload.documentId) return res.status(403).json({ success: false, message: 'Invalid token' });
+    const doc = await CaseDocument.findOne({
+      where: { id: payload.documentId, organization_id: payload.orgId, is_deleted: false }
+    });
+    if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
+    const absolutePath = path.join(UPLOAD_BASE, doc.file_path);
+    if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: 'File not found on disk' });
+    const name = doc.original_file_name || doc.document_name || 'document';
+    res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/"/g, '%22')}"`);
+    res.setHeader('Content-Type', doc.mime_type || 'application/octet-stream');
+    res.sendFile(absolutePath);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function bulkUploadDocuments(req, res, next) {
+  const t = await sequelize.transaction();
+  try {
+    const user = req.user;
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ success: false, message: 'No files uploaded' });
+    const { case_id, document_type } = req.body;
+    const caseRecord = await Case.findOne({
+      where: { id: case_id, organization_id: user.organization_id, is_deleted: false }
+    });
+    if (!caseRecord) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: 'Case not found' });
+    }
+    const documentType = document_type || 'OTHER';
+    const created = [];
+    for (const file of files.slice(0, 20)) {
+      const relativePath = writeUploadToDisk(file, user.organization_id, caseRecord.id, {
+        caseNumber: caseRecord.case_number,
+        documentType
+      });
+      const docName = (file.originalname || 'Document').trim().slice(0, 255);
+      const doc = await CaseDocument.create({
+        organization_id: user.organization_id,
+        case_id: caseRecord.id,
+        uploaded_by: user.id,
+        document_name: docName,
+        original_file_name: docName,
+        file_name: docName,
+        file_path: relativePath,
+        file_size: file.size,
+        mime_type: file.mimetype,
+        document_type: documentType,
+        version_number: 1,
+        current_version: 1,
+        is_deleted: false,
+        ocr_status: 'PENDING'
+      }, { transaction: t });
+      await DocumentVersion.create({
+        document_id: doc.id,
+        organization_id: user.organization_id,
+        version_number: 1,
+        previous_version_id: null,
+        file_path: relativePath,
+        file_name: docName,
+        file_size: file.size,
+        mime_type: file.mimetype,
+        change_type: 'CREATED',
+        changed_by: user.id,
+        change_summary: 'Bulk upload',
+        uploaded_by: user.id
+      }, { transaction: t });
+      created.push(doc);
+    }
+    await t.commit();
+    created.forEach((d) => setImmediate(() => ocrQueue.triggerOcr(d.id)));
+    const withInclude = await CaseDocument.findAll({
+      where: { id: created.map((d) => d.id) },
+      include: [
+        { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number'], include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] },
+        { model: OrganizationUser, as: 'Uploader', attributes: ['id', 'name'] }
+      ]
+    });
+    res.status(201).json({ success: true, data: withInclude, count: created.length });
+  } catch (err) {
+    await t.rollback();
+    next(err);
+  }
+}
+
 module.exports = {
   uploadDocument,
   listDocuments,
@@ -534,7 +671,10 @@ module.exports = {
   downloadVersion,
   restoreDocumentVersion,
   downloadDocument,
+  getSignedDownloadUrl,
+  downloadWithToken,
   updateDocumentMetadata,
   softDeleteDocument,
-  uploadNewVersion
+  uploadNewVersion,
+  bulkUploadDocuments
 };

@@ -4,7 +4,6 @@ const validate = require('../middleware/validate');
 const {
   createCaseValidation,
   updateCaseValidation,
-  addHearingValidation,
   uploadDocumentValidation,
   assignJudgeToCaseValidation,
   setCasePermissionsValidation
@@ -30,7 +29,8 @@ router.post('/:id/send-hearing-reminder', checkCasePermission('EDIT'), caseContr
 router.post('/:id/generate-summary', checkCasePermission('EDIT'), caseController.generateCaseSummary);
 router.put('/:id', checkCasePermission('EDIT'), sanitizeBody, updateCaseValidation, validate, caseController.updateCase);
 router.delete('/:id', checkCasePermission('DELETE'), caseController.softDeleteCase);
-router.post('/:id/hearings', sanitizeBody, addHearingValidation, validate, caseController.addHearing);
+// Hearing validation done entirely in controller for reliable messages (no express-validator on hearing_date)
+router.post('/:id/hearings', sanitizeBody, caseController.addHearing);
 router.delete('/:id/hearings/:hearingId', caseController.removeHearing);
 router.post('/:id/documents', sanitizeBody, uploadDocumentValidation, validate, caseController.uploadCaseDocument);
 router.delete('/:id/documents/:documentId', caseController.removeCaseDocument);

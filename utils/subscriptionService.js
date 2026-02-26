@@ -33,7 +33,7 @@ async function getActiveSubscription(organizationId) {
       status: 'ACTIVE',
       [Op.or]: [{ expires_at: null }, { expires_at: { [Op.gte]: now } }]
     },
-    include: [{ model: Package, as: 'Package', attributes: ['id', 'name', 'employee_limit', 'price_monthly', 'price_annual', 'duration_days', 'is_demo'] }]
+    include: [{ model: Package, as: 'Package', attributes: ['id', 'name', 'employee_limit', 'price_monthly', 'price_annual', 'duration_days', 'is_demo', 'ai_monthly_token_limit', 'ai_features'] }]
   });
 }
 

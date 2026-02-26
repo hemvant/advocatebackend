@@ -29,7 +29,14 @@ const Invoice = sequelize.define('Invoice', {
   gst_percentage: { type: DataTypes.DECIMAL(5, 2), allowNull: true, defaultValue: 0 },
   gst_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: 0 },
   total_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
-  balance_due: { type: DataTypes.DECIMAL(12, 2), allowNull: true }
+  balance_due: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+  invoice_number: { type: DataTypes.STRING(50), allowNull: true },
+  gstin: { type: DataTypes.STRING(20), allowNull: true },
+  cgst_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+  sgst_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+  igst_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+  payment_date: { type: DataTypes.DATEONLY, allowNull: true },
+  upi_reference_id: { type: DataTypes.STRING(100), allowNull: true }
 }, {
   tableName: 'invoices',
   timestamps: true,

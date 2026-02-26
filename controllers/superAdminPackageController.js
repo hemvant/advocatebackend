@@ -62,7 +62,7 @@ async function updatePackage(req, res, next) {
   try {
     const pkg = await Package.findByPk(req.params.id);
     if (!pkg) return res.status(404).json({ success: false, message: 'Package not found' });
-    const { name, description, price_monthly, price_annual, annual_discount_percent, employee_limit, duration_days, is_active, module_ids } = req.body;
+    const { name, description, price_monthly, price_annual, annual_discount_percent, employee_limit, duration_days, is_active, module_ids, ai_monthly_token_limit, ai_features } = req.body;
     if (name !== undefined) pkg.name = name;
     if (description !== undefined) pkg.description = description;
     if (price_monthly !== undefined) pkg.price_monthly = Number(price_monthly);
@@ -71,6 +71,8 @@ async function updatePackage(req, res, next) {
     if (employee_limit !== undefined) pkg.employee_limit = Math.max(1, parseInt(employee_limit, 10) || 1);
     if (duration_days !== undefined && !pkg.is_demo) pkg.duration_days = Math.max(1, parseInt(duration_days, 10) || 30);
     if (is_active !== undefined) pkg.is_active = !!is_active;
+    if (ai_monthly_token_limit !== undefined) pkg.ai_monthly_token_limit = Math.max(0, parseInt(ai_monthly_token_limit, 10) || 0);
+    if (ai_features !== undefined) pkg.ai_features = Array.isArray(ai_features) ? ai_features : [];
     await pkg.save();
     if (module_ids !== undefined && Array.isArray(module_ids)) {
       await PackageModule.destroy({ where: { package_id: pkg.id } });

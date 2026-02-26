@@ -20,6 +20,14 @@ const CaseHearing = require('./CaseHearing');
 const CaseDocument = require('./CaseDocument');
 const DocumentVersion = require('./DocumentVersion');
 const HearingReminder = require('./HearingReminder');
+const HearingLog = require('./HearingLog');
+const NotificationLog = require('./NotificationLog');
+const DocumentTemplate = require('./DocumentTemplate');
+const StampDutyConfig = require('./StampDutyConfig');
+const InvoiceItem = require('./InvoiceItem');
+const Payment = require('./Payment');
+const Expense = require('./Expense');
+const TdsRecord = require('./TdsRecord');
 const AuditLog = require('./AuditLog');
 const CaseTask = require('./CaseTask');
 const CasePermission = require('./CasePermission');
@@ -39,6 +47,12 @@ const Invoice = require('./Invoice');
 const Package = require('./Package');
 const PackageModule = require('./PackageModule');
 const OrganizationSetupProgress = require('./OrganizationSetupProgress');
+const AiConfig = require('./AiConfig');
+const AiPromptTemplate = require('./AiPromptTemplate');
+const AiChatSession = require('./AiChatSession');
+const AiChatMessage = require('./AiChatMessage');
+const AiUsageRecord = require('./AiUsageRecord');
+const AiFeatureRequest = require('./AiFeatureRequest');
 
 Organization.hasMany(OrganizationUser, { foreignKey: 'organization_id' });
 Organization.hasOne(OrganizationSetupProgress, { foreignKey: 'organization_id' });
@@ -177,6 +191,19 @@ CaseHearing.belongsTo(OrganizationUser, { foreignKey: 'created_by', as: 'Creator
 OrganizationUser.hasMany(CaseHearing, { foreignKey: 'created_by' });
 CaseHearing.hasMany(HearingReminder, { foreignKey: 'hearing_id' });
 HearingReminder.belongsTo(CaseHearing, { foreignKey: 'hearing_id' });
+CaseHearing.hasMany(HearingLog, { foreignKey: 'hearing_id' });
+HearingLog.belongsTo(CaseHearing, { foreignKey: 'hearing_id' });
+HearingLog.belongsTo(Organization, { foreignKey: 'organization_id' });
+HearingLog.belongsTo(OrganizationUser, { foreignKey: 'changed_by', as: 'ChangedByUser' });
+Organization.hasMany(HearingLog, { foreignKey: 'organization_id' });
+CaseHearing.hasMany(NotificationLog, { foreignKey: 'hearing_id' });
+NotificationLog.belongsTo(CaseHearing, { foreignKey: 'hearing_id' });
+NotificationLog.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(NotificationLog, { foreignKey: 'organization_id' });
+DocumentTemplate.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(DocumentTemplate, { foreignKey: 'organization_id' });
+StampDutyConfig.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(StampDutyConfig, { foreignKey: 'organization_id' });
 Case.hasMany(CaseDocument, { foreignKey: 'case_id' });
 CaseDocument.belongsTo(Case, { foreignKey: 'case_id' });
 Case.hasMany(CaseTask, { foreignKey: 'case_id' });
@@ -221,6 +248,8 @@ CaseDocument.belongsTo(OrganizationUser, { foreignKey: 'uploaded_by', as: 'Uploa
 OrganizationUser.hasMany(CaseDocument, { foreignKey: 'uploaded_by' });
 CaseDocument.hasMany(DocumentVersion, { foreignKey: 'document_id' });
 DocumentVersion.belongsTo(CaseDocument, { foreignKey: 'document_id' });
+DocumentVersion.belongsTo(DocumentVersion, { foreignKey: 'previous_version_id', as: 'PreviousVersion' });
+DocumentVersion.hasMany(DocumentVersion, { foreignKey: 'previous_version_id' });
 DocumentVersion.belongsTo(Organization, { foreignKey: 'organization_id' });
 Organization.hasMany(DocumentVersion, { foreignKey: 'organization_id' });
 DocumentVersion.belongsTo(OrganizationUser, { foreignKey: 'uploaded_by', as: 'Uploader' });
@@ -245,6 +274,40 @@ Invoice.belongsTo(Package, { foreignKey: 'package_id' });
 Package.hasMany(Invoice, { foreignKey: 'package_id' });
 Case.hasMany(Invoice, { foreignKey: 'case_id' });
 Invoice.belongsTo(Case, { foreignKey: 'case_id' });
+Invoice.hasMany(InvoiceItem, { foreignKey: 'invoice_id' });
+InvoiceItem.belongsTo(Invoice, { foreignKey: 'invoice_id' });
+InvoiceItem.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(InvoiceItem, { foreignKey: 'organization_id' });
+Invoice.hasMany(Payment, { foreignKey: 'invoice_id' });
+Payment.belongsTo(Invoice, { foreignKey: 'invoice_id' });
+Payment.belongsTo(Organization, { foreignKey: 'organization_id' });
+Organization.hasMany(Payment, { foreignKey: 'organization_id' });
+Expense.belongsTo(Organization, { foreignKey: 'organization_id' });
+Expense.belongsTo(Case, { foreignKey: 'case_id' });
+Expense.belongsTo(OrganizationUser, { foreignKey: 'created_by', as: 'Creator' });
+Organization.hasMany(Expense, { foreignKey: 'organization_id' });
+Case.hasMany(Expense, { foreignKey: 'case_id' });
+OrganizationUser.hasMany(Expense, { foreignKey: 'created_by' });
+TdsRecord.belongsTo(Organization, { foreignKey: 'organization_id' });
+TdsRecord.belongsTo(Invoice, { foreignKey: 'invoice_id' });
+TdsRecord.belongsTo(Payment, { foreignKey: 'payment_id' });
+Organization.hasMany(TdsRecord, { foreignKey: 'organization_id' });
+Invoice.hasMany(TdsRecord, { foreignKey: 'invoice_id' });
+Payment.hasMany(TdsRecord, { foreignKey: 'payment_id' });
+
+AiChatSession.belongsTo(Organization, { foreignKey: 'organization_id' });
+AiChatSession.belongsTo(OrganizationUser, { foreignKey: 'user_id' });
+AiChatSession.hasMany(AiChatMessage, { foreignKey: 'session_id' });
+AiChatMessage.belongsTo(AiChatSession, { foreignKey: 'session_id' });
+Organization.hasMany(AiChatSession, { foreignKey: 'organization_id' });
+OrganizationUser.hasMany(AiChatSession, { foreignKey: 'user_id' });
+AiUsageRecord.belongsTo(Organization, { foreignKey: 'organization_id' });
+AiUsageRecord.belongsTo(OrganizationUser, { foreignKey: 'user_id' });
+AiUsageRecord.belongsTo(AiChatSession, { foreignKey: 'session_id' });
+Organization.hasMany(AiUsageRecord, { foreignKey: 'organization_id' });
+AiFeatureRequest.belongsTo(Organization, { foreignKey: 'organization_id' });
+AiFeatureRequest.belongsTo(OrganizationUser, { foreignKey: 'user_id' });
+Organization.hasMany(AiFeatureRequest, { foreignKey: 'organization_id' });
 
 Package.belongsToMany(Module, {
   through: PackageModule,
@@ -286,6 +349,20 @@ module.exports = {
   CaseDocument,
   DocumentVersion,
   HearingReminder,
+  HearingLog,
+  NotificationLog,
+  DocumentTemplate,
+  StampDutyConfig,
+  InvoiceItem,
+  Payment,
+  Expense,
+  TdsRecord,
+  AiConfig,
+  AiPromptTemplate,
+  AiChatSession,
+  AiChatMessage,
+  AiUsageRecord,
+  AiFeatureRequest,
   AuditLog,
   CaseTask,
   CasePermission,

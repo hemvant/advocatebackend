@@ -13,7 +13,7 @@ const login = async (req, res, next) => {
     }
     const user = await OrganizationUser.findOne({
       where: { email: emailNorm },
-      include: [{ model: Organization, as: 'Organization', attributes: ['id', 'name', 'is_active', 'type', 'is_trial', 'trial_ends_at'] }]
+      include: [{ model: Organization, as: 'Organization', attributes: ['id', 'name', 'is_active', 'type', 'is_trial', 'trial_ends_at', 'logo_url'] }]
     });
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
@@ -68,7 +68,7 @@ const me = async (req, res, next) => {
   try {
     const user = await OrganizationUser.findByPk(req.user.id, {
       include: [
-        { model: Organization, as: 'Organization', attributes: ['id', 'name', 'is_active', 'type', 'is_trial', 'trial_ends_at'] },
+        { model: Organization, as: 'Organization', attributes: ['id', 'name', 'is_active', 'type', 'is_trial', 'trial_ends_at', 'logo_url'] },
         { model: Module, as: 'Modules', through: { attributes: [] }, attributes: ['id', 'name'] }
       ],
       attributes: { exclude: ['password'] }

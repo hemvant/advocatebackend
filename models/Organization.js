@@ -34,8 +34,13 @@ const Organization = sequelize.define('Organization', {
   },
   type: {
     type: DataTypes.STRING(20),
-    allowNull: true,
-    defaultValue: 'FIRM'
+    allowNull: false,
+    defaultValue: 'firm'
+  },
+  is_system_default: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
   },
   is_trial: {
     type: DataTypes.BOOLEAN,
@@ -45,7 +50,13 @@ const Organization = sequelize.define('Organization', {
   trial_ends_at: {
     type: DataTypes.DATE,
     allowNull: true
-  }
+  },
+  logo_url: {
+    type: DataTypes.STRING(500),
+    allowNull: true
+  },
+  gstin: { type: DataTypes.STRING(20), allowNull: true },
+  upi_id: { type: DataTypes.STRING(100), allowNull: true }
 }, {
   tableName: 'organizations',
   timestamps: true,

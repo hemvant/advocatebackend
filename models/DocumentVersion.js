@@ -23,6 +23,11 @@ const DocumentVersion = sequelize.define('DocumentVersion', {
     type: DataTypes.INTEGER,
     allowNull: false
   },
+  previous_version_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'document_versions', key: 'id' }
+  },
   file_path: {
     type: DataTypes.STRING(500),
     allowNull: true
@@ -54,6 +59,10 @@ const DocumentVersion = sequelize.define('DocumentVersion', {
   },
   change_summary: {
     type: DataTypes.STRING(500),
+    allowNull: true
+  },
+  change_note: {
+    type: DataTypes.TEXT,
     allowNull: true
   },
   uploaded_by: {

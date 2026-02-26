@@ -2,6 +2,10 @@ const { sequelize, CaseHearing, HearingReminder, Case, Client, OrganizationUser,
 const { Op } = require('sequelize');
 const auditService = require('../utils/auditService');
 const cache = require('../utils/cache');
+const CourtDiaryCalendarService = require('../services/courtDiary/CourtDiaryCalendarService');
+const HearingRescheduleService = require('../services/courtDiary/HearingRescheduleService');
+const DiaryPdfService = require('../services/courtDiary/DiaryPdfService');
+const CauseListImportService = require('../services/courtDiary/CauseListImportService');
 
 function buildHearingWhere(user) {
   const base = { organization_id: user.organization_id };
@@ -229,30 +233,20 @@ const listHearings = async (req, res, next) => {
 const getCalendarView = async (req, res, next) => {
   try {
     const user = req.user;
-    const where = { ...buildHearingWhere(user), is_deleted: false };
     const start = req.query.start ? new Date(req.query.start) : new Date(new Date().setDate(1));
     const end = req.query.end ? new Date(req.query.end) : new Date(new Date().setMonth(start.getMonth() + 1));
-    where.hearing_date = { [Op.gte]: start, [Op.lte]: end };
-    if (req.query.status) where.status = req.query.status;
-
-    const include = [
-      { model: Case, as: 'Case', attributes: ['id', 'case_title', 'case_number', 'client_id'], required: true, include: [{ model: Client, as: 'Client', attributes: ['id', 'name'] }] }
-    ];
-
-    const hearings = await CaseHearing.findAll({
-      where,
-      include,
-      order: [['hearing_date', 'ASC']]
+    const advocateId = req.query.advocate_id ? parseInt(req.query.advocate_id, 10) : undefined;
+    const courtId = req.query.court_id ? parseInt(req.query.court_id, 10) : undefined;
+    const caseType = req.query.case_type ? req.query.case_type : undefined;
+    const { data, byDate } = await CourtDiaryCalendarService.getCalendarHearings(user, {
+      start: start.toISOString(),
+      end: end.toISOString(),
+      status: req.query.status,
+      advocate_id: advocateId,
+      court_id: courtId,
+      case_type: caseType
     });
-
-    const byDate = {};
-    hearings.forEach((h) => {
-      const d = h.hearing_date ? new Date(h.hearing_date).toISOString().slice(0, 10) : 'none';
-      if (!byDate[d]) byDate[d] = [];
-      byDate[d].push(h);
-    });
-
-    res.json({ success: true, data: hearings, byDate });
+    res.json({ success: true, data, byDate });
   } catch (err) {
     next(err);
   }
@@ -351,6 +345,60 @@ const removeReminder = async (req, res, next) => {
   }
 };
 
+const rescheduleHearing = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const hearing = await getHearingWithAccess(req.params.id, user);
+    if (!hearing) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const { hearing_date, reason } = req.body;
+    const result = await HearingRescheduleService.reschedule({
+      hearingId: hearing.id,
+      organizationId: user.organization_id,
+      changedByUserId: user.id,
+      newHearingDate: hearing_date,
+      reason
+    });
+    if (!result) return res.status(404).json({ success: false, message: 'Hearing not found' });
+    const updated = await getHearingWithAccess(hearing.id, user);
+    res.json({ success: true, data: updated, log: result.log });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getDiaryPdf = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const advocateId = req.query.advocate_id ? parseInt(req.query.advocate_id, 10) : undefined;
+    const courtId = req.query.court_id ? parseInt(req.query.court_id, 10) : undefined;
+    const caseType = req.query.case_type || undefined;
+    const buffer = await DiaryPdfService.generate(user, date, { advocate_id: advocateId, court_id: courtId, case_type: caseType });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="court-diary-${date}.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const uploadCauseList = async (req, res, next) => {
+  try {
+    const user = req.user;
+    if (!req.file || !req.file.buffer) return res.status(400).json({ success: false, message: 'PDF file is required' });
+    const hearingDate = req.body.hearing_date || new Date().toISOString().slice(0, 10);
+    const result = await CauseListImportService.importFromPdf(
+      user.organization_id,
+      req.file.buffer,
+      hearingDate,
+      user.id
+    );
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   createHearing,
   updateHearing,
@@ -361,5 +409,8 @@ module.exports = {
   getDashboardHearings,
   listReminders,
   addReminder,
-  removeReminder
+  removeReminder,
+  rescheduleHearing,
+  getDiaryPdf,
+  uploadCauseList
 };

@@ -1,14 +1,17 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const organizationAuth = require('../middleware/organizationAuth');
+const checkSoloRestriction = require('../middleware/checkSoloRestriction');
 const { requireOrgAdmin, requireOrgAdminOrEmployee } = require('../middleware/orgRole');
 const sanitizeBody = require('../middleware/sanitize').sanitizeBody;
 const validate = require('../middleware/validate');
-const { orgLoginValidation, createOrgUserValidation, updateOrgUserValidation, assignEmployeeModulesValidation, resetEmployeePasswordValidation } = require('../utils/validators');
+const { orgLoginValidation, createOrgUserValidation, updateOrgUserValidation, assignEmployeeModulesValidation, resetEmployeePasswordValidation, orgProfileValidation, userProfileValidation } = require('../utils/validators');
+const { uploadProfileImage } = require('../config/uploads');
 const orgAuthController = require('../controllers/orgAuthController');
 const organizationUserController = require('../controllers/organizationUserController');
 const moduleController = require('../controllers/moduleController');
 const setupStatusController = require('../controllers/setupStatusController');
+const profileController = require('../controllers/profileController');
 
 const router = express.Router();
 
@@ -27,13 +30,18 @@ router.get('/my-modules', organizationAuth, orgAuthController.myModules);
 router.get('/setup-status', organizationAuth, setupStatusController.getStatus);
 
 router.get('/employees', organizationAuth, requireOrgAdminOrEmployee, organizationUserController.list);
-router.post('/employees', organizationAuth, requireOrgAdmin, sanitizeBody, createOrgUserValidation, validate, organizationUserController.create);
+router.post('/employees', organizationAuth, requireOrgAdmin, checkSoloRestriction, sanitizeBody, createOrgUserValidation, validate, organizationUserController.create);
 router.get('/employees/:id', organizationAuth, requireOrgAdminOrEmployee, organizationUserController.getOne);
 router.put('/employees/:id', organizationAuth, requireOrgAdmin, sanitizeBody, updateOrgUserValidation, validate, organizationUserController.update);
 router.get('/employees/:id/modules', organizationAuth, requireOrgAdmin, organizationUserController.getEmployeeModules);
-router.put('/employees/:id/modules', organizationAuth, requireOrgAdmin, assignEmployeeModulesValidation, validate, organizationUserController.assignEmployeeModules);
+router.put('/employees/:id/modules', organizationAuth, requireOrgAdmin, checkSoloRestriction, assignEmployeeModulesValidation, validate, organizationUserController.assignEmployeeModules);
 router.put('/employees/:id/reset-password', organizationAuth, requireOrgAdmin, sanitizeBody, resetEmployeePasswordValidation, validate, organizationUserController.resetPassword);
 
 router.get('/modules', organizationAuth, moduleController.list);
+
+router.put('/organization/profile', organizationAuth, sanitizeBody, orgProfileValidation, validate, profileController.updateOrganizationProfile);
+router.post('/organization/logo', organizationAuth, uploadProfileImage.single('logo'), profileController.uploadOrganizationLogo);
+router.put('/user/profile', organizationAuth, sanitizeBody, userProfileValidation, validate, profileController.updateUserProfile);
+router.post('/user/profile-photo', organizationAuth, uploadProfileImage.single('photo'), profileController.uploadUserProfilePhoto);
 
 module.exports = router;

@@ -16,6 +16,7 @@ const superAdminAuditController = require('../controllers/superAdminAuditControl
 const superAdminSubscriptionsController = require('../controllers/superAdminSubscriptionsController');
 const superAdminPackageController = require('../controllers/superAdminPackageController');
 const superAdminInvoiceController = require('../controllers/superAdminInvoiceController');
+const superAdminAiController = require('../controllers/superAdminAiController');
 const { createPackageValidation, updatePackageValidation, assignSubscriptionValidation, createInvoiceValidation, markInvoicePaidValidation } = require('../utils/validators');
 
 const router = express.Router();
@@ -63,5 +64,12 @@ router.put('/invoices/:id/mark-paid', superAdminAuth, sanitizeBody, markInvoiceP
 router.get('/audit-logs', superAdminAuth, superAdminAuditController.listPlatformAuditLogs);
 
 router.get('/modules', superAdminAuth, moduleController.listAll);
+
+router.get('/ai/config', superAdminAuth, superAdminAiController.getConfig);
+router.put('/ai/config', superAdminAuth, sanitizeBody, superAdminAiController.updateConfig);
+router.get('/ai/usage', superAdminAuth, superAdminAiController.getUsage);
+router.get('/ai/usage/cost', superAdminAuth, superAdminAiController.getEstimatedCost);
+router.get('/ai/prompt-templates', superAdminAuth, superAdminAiController.listPromptTemplates);
+router.put('/ai/prompt-templates/:id', superAdminAuth, sanitizeBody, superAdminAiController.updatePromptTemplate);
 
 module.exports = router;

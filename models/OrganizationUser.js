@@ -54,7 +54,10 @@ const OrganizationUser = sequelize.define('OrganizationUser', {
     defaultValue: false
   },
   email_verification_token: { type: DataTypes.STRING(255), allowNull: true },
-  email_verification_expires: { type: DataTypes.DATE, allowNull: true }
+  email_verification_expires: { type: DataTypes.DATE, allowNull: true },
+  profile_photo_url: { type: DataTypes.STRING(500), allowNull: true },
+  bar_council_number: { type: DataTypes.STRING(100), allowNull: true },
+  years_of_practice: { type: DataTypes.STRING(20), allowNull: true }
 }, {
   tableName: 'organization_users',
   timestamps: true,

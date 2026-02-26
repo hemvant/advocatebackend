@@ -618,6 +618,18 @@ const listCases = async (req, res, next) => {
   }
 };
 
+/** Normalize to date-only YYYY-MM-DD for case/dateonly fields. */
+function toDateOnly(val) {
+  if (val == null || val === '') return null;
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+/**
+ * Add a hearing for a case.
+ * - Saves hearing_date (this hearing) and next_hearing_date (next hearing after this) on case_hearings.
+ * - Updates case.next_hearing_date so the case's "Next hearing" matches the next known date (no conflict).
+ */
 const addHearing = async (req, res, next) => {
   const t = await sequelize.transaction();
   try {
@@ -627,7 +639,40 @@ const addHearing = async (req, res, next) => {
       await t.rollback();
       return res.status(404).json({ success: false, message: 'Case not found' });
     }
-    const { hearing_date, courtroom, courtroom_id, judge_id, bench_id, remarks, outcome_status, outcome_notes, next_hearing_date } = req.body;
+
+    const rawHearingDate = req.body.hearing_date;
+    const hearingDateStr = rawHearingDate != null ? String(rawHearingDate).trim() : '';
+    if (!hearingDateStr) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Hearing date is required.',
+        errors: [{ field: 'hearing_date', message: 'Hearing date is required.' }]
+      });
+    }
+    const hearingDateObj = new Date(hearingDateStr);
+    if (isNaN(hearingDateObj.getTime())) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Hearing date must be a valid date and time.',
+        errors: [{ field: 'hearing_date', message: 'Hearing date must be a valid date and time.' }]
+      });
+    }
+
+    let { courtroom, courtroom_id, judge_id, bench_id, remarks, outcome_status, outcome_notes, next_hearing_date } = req.body;
+    courtroom = (courtroom != null && String(courtroom).trim()) ? String(courtroom).trim().slice(0, 100) : null;
+    remarks = (remarks != null && String(remarks).trim()) ? String(remarks).trim() : null;
+    outcome_notes = (outcome_notes != null && String(outcome_notes).trim()) ? String(outcome_notes).trim() : null;
+    const nextHearingDateNormalized = toDateOnly(next_hearing_date) || null;
+    if (next_hearing_date != null && String(next_hearing_date).trim() !== '' && !nextHearingDateNormalized) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Next hearing date must be a valid date.',
+        errors: [{ field: 'next_hearing_date', message: 'Next hearing date must be a valid date.' }]
+      });
+    }
     const lastHearing = await CaseHearing.findOne({
       where: { case_id: caseRecord.id, is_deleted: false },
       order: [['hearing_number', 'DESC'], ['hearing_date', 'DESC']],
@@ -650,7 +695,7 @@ const addHearing = async (req, res, next) => {
       case_id: caseRecord.id,
       organization_id: caseRecord.organization_id,
       created_by: user.id,
-      hearing_date: hearing_date ? new Date(hearing_date) : null,
+      hearing_date: hearingDateObj,
       courtroom: courtroom || null,
       courtroom_id: courtroom_id || null,
       judge_id: judgeIdForHearing,
@@ -663,9 +708,17 @@ const addHearing = async (req, res, next) => {
       previous_hearing_id: previousHearingId,
       outcome_status: outcome_status || null,
       outcome_notes: outcome_notes || null,
-      next_hearing_date: next_hearing_date || null,
+      next_hearing_date: nextHearingDateNormalized,
       is_deleted: false
     }, { transaction: t });
+
+    // Keep case.next_hearing_date in sync: reflect the next known hearing date (case table is DATEONLY).
+    const now = new Date();
+    const caseNextDate = nextHearingDateNormalized || (hearingDateObj >= now ? toDateOnly(hearingDateObj) : null);
+    if (caseNextDate) {
+      await caseRecord.update({ next_hearing_date: caseNextDate }, { transaction: t });
+    }
+
     const completedStatuses = ['completed', 'disposed'];
     if (outcome_status && completedStatuses.includes(String(outcome_status).toLowerCase())) {
       await caseRecord.update({ case_lifecycle_status: 'Closed' }, { transaction: t });
@@ -827,7 +880,7 @@ const sendHearingReminderWhatsApp = async (req, res, next) => {
     if (!caseRecord) return res.status(404).json({ success: false, message: 'Case not found' });
 
     const now = new Date();
-    const nextHearing = await CaseHearing.findOne({
+    let nextHearing = await CaseHearing.findOne({
       where: {
         case_id: caseRecord.id,
         is_deleted: false,
@@ -836,13 +889,28 @@ const sendHearingReminderWhatsApp = async (req, res, next) => {
       },
       order: [['hearing_date', 'ASC']]
     });
-    if (!nextHearing) {
-      return res.status(400).json({ success: false, message: 'No upcoming hearing for this case' });
+
+    let hearingDateStr;
+    let courtroom = '—';
+    let entityId = null;
+
+    if (nextHearing) {
+      hearingDateStr = formatHearingDateForWhatsApp(nextHearing.hearing_date);
+      courtroom = nextHearing.courtroom || '—';
+      entityId = nextHearing.id;
+    } else {
+      // Fallback: use case-level next hearing date (from case form or eCourts)
+      const caseDate = caseRecord.next_hearing_date || caseRecord.external_next_hearing_date;
+      if (!caseDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'No hearing date found. Add a hearing with a date in the Hearings section, or set Next hearing date in Edit Case.'
+        });
+      }
+      hearingDateStr = formatHearingDateForWhatsApp(caseDate);
     }
 
     const caseTitle = caseRecord.case_title || 'Case';
-    const hearingDateStr = formatHearingDateForWhatsApp(nextHearing.hearing_date);
-    const courtroom = nextHearing.courtroom || '—';
     const params = [caseTitle, hearingDateStr, courtroom];
 
     let queued = false;
@@ -858,11 +926,11 @@ const sendHearingReminderWhatsApp = async (req, res, next) => {
     await auditService.log(req, {
       organization_id: user.organization_id,
       user_id: user.id,
-      entity_type: 'HEARING',
-      entity_id: nextHearing.id,
+      entity_type: entityId ? 'HEARING' : 'CASE',
+      entity_id: entityId || caseRecord.id,
       action_type: 'NOTIFY',
       module_name: 'HEARINGS',
-      new_value: { template: 'hearing_reminder', case_id: caseRecord.id, hearing_id: nextHearing.id },
+      new_value: { template: 'hearing_reminder', case_id: caseRecord.id, hearing_id: entityId },
       action_summary: `WhatsApp hearing reminder sent for hearing (${hearingDateStr}).`
     });
 

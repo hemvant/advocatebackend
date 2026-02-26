@@ -94,7 +94,9 @@ const CaseHearing = sequelize.define('CaseHearing', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false
-  }
+  },
+  reminder_1_day_sent: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false },
+  reminder_2_hour_sent: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false }
 }, {
   tableName: 'case_hearings',
   timestamps: true,
